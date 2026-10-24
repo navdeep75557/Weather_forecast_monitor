@@ -78,30 +78,40 @@ def test_validation_errors(client, params):
 
 def test_503_when_data_missing(client):
     store = app.state.store
-    saved = store.actuals
-    store.actuals = store.actuals.iloc[0:0]
-    try:
+    with patched(store, actuals=store.actuals.iloc[0:0]):
         assert client.get("/api/metrics").status_code == 503
-    finally:
-        store.actuals = saved
 
 
 @contextmanager
 def patched(store, **frames):
-    """Temporarily replace store DataFrames."""
+    """Temporarily replace store DataFrames (clearing the response cache, which is keyed on the data)."""
     saved = {k: getattr(store, k) for k in frames}
     for k, v in frames.items():
         setattr(store, k, v)
+    store.cache.clear()
     try:
         yield
     finally:
         for k, v in saved.items():
             setattr(store, k, v)
+        store.cache.clear()
 
 
 def _on_day(df, day: str):
     lo = pd.Timestamp(day, tz="UTC")
     return (df["start_time"] >= lo) & (df["start_time"] < lo + pd.Timedelta(days=1))
+
+
+def test_responses_are_cached_and_cacheable(client):
+    store = app.state.store
+    store.cache.clear()
+    first = client.get("/api/metrics", params={"start": "2026-01-03", "end": "2026-01-04"})
+    assert len(store.cache) == 1
+    second = client.get("/api/metrics", params={"start": "2026-01-03", "end": "2026-01-04"})
+    assert first.content == second.content and len(store.cache) == 1
+    assert "s-maxage" in first.headers["cache-control"]
+    assert client.get("/api/health").headers["cache-control"] == "no-store"
+    assert client.get("/api/metrics", params={"start": "2026-02-01"}).headers["cache-control"] == "no-store"
 
 
 def test_zero_actuals_do_not_break_metrics(client):

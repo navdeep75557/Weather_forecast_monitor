@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pandas as pd
 
+from .cache import ResponseCache
 from .config import FORECAST_PUBLISH_FROM, FORECAST_PUBLISH_TO, SCOPE_END, SCOPE_START, Settings
 from .elexon import ACTUAL_COLUMNS, FORECAST_COLUMNS, ElexonClient
 from .forecasting import in_window
@@ -42,6 +43,7 @@ class DataStore:
         self.source: str | None = None
         self.loaded_at: datetime | None = None
         self.error: str | None = None
+        self.cache = ResponseCache()
 
     @property
     def actuals_path(self) -> Path:
@@ -67,6 +69,7 @@ class DataStore:
                 self.source = "elexon"
             self.loaded_at = datetime.now(timezone.utc)
             self.error = None
+            self.cache.clear()
             log.info("Loaded %d actuals, %d forecast rows from %s", len(self.actuals), len(self.forecasts), self.source)
         except Exception as exc:  # keep the API up and report the problem via /api/health
             self.error = f"{type(exc).__name__}: {exc}"

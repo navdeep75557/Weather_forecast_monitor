@@ -1,15 +1,17 @@
 """FastAPI app: wind forecast vs actual monitoring for day-ahead decisions."""
 
 import logging
+from collections.abc import Callable, Hashable
 from contextlib import asynccontextmanager
 from datetime import date
-from typing import Annotated
+from functools import cache
+from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel, TypeAdapter
 
 from . import forecasting as fc
 from .config import SCOPE_END, SCOPE_START, get_settings
@@ -47,6 +49,21 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+
+
+# Data is immutable per deployment: let browsers and the CDN cache data responses.
+CACHEABLE_PATHS = {"/api/actuals", "/api/forecasts/latest", "/api/metrics", "/api/error-by-horizon"}
+DATA_CACHE_CONTROL = "public, max-age=300, s-maxage=86400, stale-while-revalidate=604800"
+
+
+@app.middleware("http")
+async def cache_headers(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path in CACHEABLE_PATHS and response.status_code == 200:
+        response.headers["Cache-Control"] = DATA_CACHE_CONTROL
+    elif request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.exception_handler(Exception)
@@ -110,6 +127,18 @@ def select(store: DataStore, p: SelectionParams):
     return fc.select_for_horizon(store.forecasts, p.start, p.end, p.horizon_hours)
 
 
+@cache
+def _adapter(model: Any) -> TypeAdapter:
+    return TypeAdapter(model)
+
+
+def cached_json(store: DataStore, key: Hashable, model: Any, build: Callable[[], Any]) -> Response:
+    """Validate + serialise a response once per query; later identical requests reuse the bytes."""
+    adapter = _adapter(model)
+    body = store.cache.get_or_set(key, lambda: adapter.dump_json(adapter.validate_python(build())))
+    return Response(content=body, media_type="application/json")
+
+
 Store = Annotated[DataStore, Depends(get_store)]
 Range = Annotated[DateRange, Depends(date_range)]
 Selection = Annotated[SelectionParams, Depends(selection)]
@@ -139,16 +168,19 @@ def health(request: Request) -> HealthResponse:
 
 
 @app.get("/api/actuals", response_model=list[ActualPoint])
-def actuals(store: Store, rng: Range) -> list[dict]:
+def actuals(store: Store, rng: Range) -> Response:
     """Half-hourly wind outturn (FUELHH, fuelType=WIND) for the target range."""
-    df = fc.in_window(store.actuals, rng.start, rng.end)
-    return df[["start_time", "actual_mw"]].to_dict(orient="records")
+
+    def build() -> list[dict]:
+        return fc.in_window(store.actuals, rng.start, rng.end)[["start_time", "actual_mw"]].to_dict(orient="records")
+
+    return cached_json(store, ("actuals", rng.start, rng.end), list[ActualPoint], build)
 
 
 @app.get("/api/forecasts/latest", response_model=list[ForecastPoint])
-def latest_forecasts(store: Store, p: Selection) -> list[dict]:
+def latest_forecasts(store: Store, p: Selection) -> Response:
     """Latest forecast per target hour available at decision time (cutoff) or H hours ahead (horizon)."""
-    return select(store, p).to_dict(orient="records")
+    return cached_json(store, ("latest", p.model_dump_json()), list[ForecastPoint], lambda: select(store, p).to_dict(orient="records"))
 
 
 @app.get("/api/metrics", response_model=MetricsResponse)
@@ -156,8 +188,12 @@ def metrics(
     store: Store,
     p: Selection,
     include_points: Annotated[bool, Query(description="Include the joined time series")] = True,
-) -> dict:
+) -> Response:
     """Accuracy metrics (overall + daily), joined series and plain-English insights."""
+    return cached_json(store, ("metrics", p.model_dump_json(), include_points), MetricsResponse, lambda: _metrics(store, p, include_points))
+
+
+def _metrics(store: DataStore, p: SelectionParams, include_points: bool) -> dict:
     mape_min = settings.mape_min_actual_mw
     selected = select(store, p)
     joined = fc.join_actuals(selected, store.actuals)
@@ -188,13 +224,17 @@ def horizon_errors(
     rng: Range,
     bucket_hours: Annotated[int, Query(ge=1, le=24)] = 6,
     max_horizon: Annotated[int, Query(ge=1, le=72)] = 48,
-) -> dict:
+) -> Response:
     """Error of ALL forecast runs for targets in range, bucketed by lead time (startTime - publishTime)."""
-    runs = fc.all_runs_joined(store.forecasts, store.actuals, rng.start, rng.end)
-    return {
-        "start": rng.start,
-        "end": rng.end,
-        "bucket_hours": bucket_hours,
-        "max_horizon": max_horizon,
-        "buckets": error_by_horizon(runs, bucket_hours, max_horizon, settings.mape_min_actual_mw),
-    }
+
+    def build() -> dict:
+        runs = fc.all_runs_joined(store.forecasts, store.actuals, rng.start, rng.end)
+        return {
+            "start": rng.start,
+            "end": rng.end,
+            "bucket_hours": bucket_hours,
+            "max_horizon": max_horizon,
+            "buckets": error_by_horizon(runs, bucket_hours, max_horizon, settings.mape_min_actual_mw),
+        }
+
+    return cached_json(store, ("horizon", rng.start, rng.end, bucket_hours, max_horizon), ErrorByHorizonResponse, build)
