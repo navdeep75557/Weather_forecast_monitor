@@ -1,50 +1,44 @@
-/** Wind Forecast Monitor dashboard. */
-import { type ReactNode, useEffect, useMemo, useState } from "react";
-import { api } from "./api";
-import { Controls } from "./components/Controls";
+/** Wind Forecast Monitor dashboard: composes filters, KPIs, charts, insights and the daily table. */
+import { Provider as TooltipProvider } from "@radix-ui/react-tooltip";
+import { ZoomOut } from "lucide-react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { DailyTable } from "./components/DailyTable";
-import { ErrorChart } from "./components/ErrorChart";
-import { ForecastChart, mergeSeries } from "./components/ForecastChart";
-import { HorizonChart } from "./components/HorizonChart";
-import { Insights } from "./components/Insights";
-import { MetricCards } from "./components/MetricCards";
-import { fmtDay } from "./lib/format";
-import type { HealthResponse, Query } from "./types";
-import { useDashboard, useDebounced } from "./useDashboard";
+import { FilterBar } from "./components/FilterBar";
+import { Guide } from "./components/Guide";
+import { InsightsPanel } from "./components/InsightsPanel";
+import { KpiRow } from "./components/KpiRow";
+import { ChartSkeleton, DashboardSkeleton, EmptyState, ErrorState, InlineError } from "./components/States";
+import { TopBar } from "./components/TopBar";
+import { Button } from "./components/ui/Button";
+import { Card, CardBody, CardHeader } from "./components/ui/Card";
+import { cn } from "./lib/cn";
+import { fmtDay, fmtMW, fmtRange } from "./lib/format";
+import { useGuide, useTheme } from "./lib/prefs";
+import { DEFAULT_QUERY, cutoffLabel, serializeQuery, useUrlQuery } from "./lib/query";
+import { mergeSeries } from "./lib/series";
+import { useDashboard, useDebounced, useHealth } from "./useDashboard";
 
-const DEFAULT_QUERY: Query = {
-  start: "2026-01-01",
-  end: "2026-01-31",
-  mode: "cutoff",
-  cutoffHour: 9,
-  cutoffMinute: 50,
-  horizonHours: 24,
-};
-
-function Card({ title, subtitle, children, actions }: { title: string; subtitle?: string; children: ReactNode; actions?: ReactNode }) {
-  return (
-    <section className="card">
-      <header className="card-head">
-        <div>
-          <h2>{title}</h2>
-          {subtitle && <p className="card-sub">{subtitle}</p>}
-        </div>
-        {actions}
-      </header>
-      {children}
-    </section>
-  );
-}
+// Recharts is heavy: load chart code in its own chunk, started in parallel with the first data request.
+const loadForecastChart = () => import("./components/charts/ForecastChart");
+const loadErrorChart = () => import("./components/charts/ErrorChart");
+const loadHorizonChart = () => import("./components/charts/HorizonChart");
+const ForecastChart = lazy(loadForecastChart);
+const ErrorChart = lazy(loadErrorChart);
+const HorizonChart = lazy(loadHorizonChart);
 
 export default function App() {
-  const [query, setQuery] = useState<Query>(DEFAULT_QUERY);
+  const [query, setQuery] = useUrlQuery();
   const debounced = useDebounced(query, 300);
   const { data, loading, slow, error, retry } = useDashboard(debounced);
-  const [health, setHealth] = useState<HealthResponse | null>(null);
+  const health = useHealth(data);
+  const [theme, toggleTheme] = useTheme();
+  const [guideOpen, setGuideOpen] = useGuide();
 
   useEffect(() => {
-    api.health().then(setHealth, () => setHealth(null));
-  }, [data]);
+    void loadForecastChart();
+    void loadErrorChart();
+    void loadHorizonChart();
+  }, []);
 
   const rows = useMemo(() => (data ? mergeSeries(data.actuals, data.metrics.points) : []), [data]);
   const [range, setRange] = useState<[number, number] | null>(null);
@@ -59,6 +53,10 @@ export default function App() {
     setRange(null);
     setChartKey((k) => k + 1);
   };
+  const resetAll = () => {
+    setQuery(DEFAULT_QUERY);
+    resetZoom();
+  };
 
   const usedRange = useMemo<[number, number] | null>(() => {
     const h = data?.metrics.points.map((p) => p.horizon_hours) ?? [];
@@ -66,94 +64,110 @@ export default function App() {
   }, [data]);
 
   const m = data?.metrics;
-  const fileTag = m ? `${m.params.start}_${m.params.end}_${m.params.mode === "cutoff" ? `cutoff-${String(m.params.cutoff_hour).padStart(2, "0")}${String(m.params.cutoff_minute).padStart(2, "0")}` : `h${m.params.horizon_hours}`}` : "";
+  const p = m?.params;
+  const fileTag = p
+    ? `${p.start}_${p.end}_${p.mode === "cutoff" ? `cutoff-${cutoffLabel({ cutoffHour: p.cutoff_hour, cutoffMinute: p.cutoff_minute }).replace(":", "")}` : `h${p.horizon_hours}`}`
+    : "";
+  const scope = p ? `${p.label} · ${fmtRange(p.start, p.end)}` : "";
 
   return (
-    <div className="page">
-      <header className="app-header">
-        <div>
-          <h1>Wind Forecast Monitor</h1>
-          <p className="subtitle">
-            GB wind generation: day-ahead forecast vs outturn · Elexon BMRS (WINDFOR, FUELHH) · January 2026 · times in UK local time
-          </p>
-        </div>
-        <div className={`status-pill ${health?.status === "ok" ? "ok" : health ? "warn" : ""}`} role="status">
-          <span className="dot" aria-hidden />
-          {health
-            ? health.status === "ok"
-              ? `Data loaded · ${health.forecast_runs} forecast runs`
-              : "Data unavailable"
-            : "Connecting…"}
-        </div>
-      </header>
+    <TooltipProvider delayDuration={150}>
+      <a
+        href="#main"
+        className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:text-sm"
+      >
+        Skip to dashboard
+      </a>
+      <TopBar health={health} theme={theme} onToggleTheme={toggleTheme} onHelp={() => setGuideOpen(true)} />
+      <FilterBar
+        query={query}
+        onChange={setQuery}
+        onReset={resetAll}
+        isDefault={serializeQuery(query) === serializeQuery(DEFAULT_QUERY)}
+        refreshing={!!data && (loading || query !== debounced)}
+      />
 
-      <Controls query={query} onChange={setQuery} />
+      <main id="main" className="mx-auto max-w-[1440px] space-y-6 px-4 py-6 md:px-6">
+        {guideOpen && <Guide onDismiss={() => setGuideOpen(false)} />}
+        {error && data && <InlineError message={error} onRetry={retry} />}
 
-      {error && (
-        <div className="banner error" role="alert">
-          <span>{error}</span>
-          <button className="button" onClick={retry}>
-            Retry
-          </button>
-        </div>
-      )}
+        {!data || !m ? (
+          error ? (
+            <ErrorState message={error} onRetry={retry} />
+          ) : (
+            <DashboardSkeleton slow={slow} />
+          )
+        ) : m.overall.n === 0 ? (
+          <EmptyState onReset={resetAll} />
+        ) : (
+          <div className={cn("space-y-6 transition-opacity duration-200", loading && "opacity-60")} aria-busy={loading}>
+            <KpiRow metrics={m} />
 
-      {!data && !error && (
-        <div className="loading-state" role="status">
-          <div className="spinner" aria-hidden />
-          <p>{slow ? "Waking up the API. Free-tier hosting can take 30–60 seconds on first request…" : "Loading Elexon data…"}</p>
-        </div>
-      )}
-
-      {data && m && (
-        <main className={`content ${loading ? "is-refreshing" : ""}`} aria-busy={loading}>
-          <MetricCards metrics={m} />
-
-          <Card
-            title="Actual vs forecast wind generation"
-            subtitle="Drag the handles under the chart to zoom; the error chart below follows."
-            actions={
-              zoomed ? (
-                <div className="card-actions">
-                  <span className="zoom-range">
-                    {fmtDay(timeWindow[0])} – {fmtDay(timeWindow[1])}
-                  </span>
-                  <button className="button ghost" onClick={resetZoom}>
-                    Reset zoom
-                  </button>
-                </div>
-              ) : undefined
-            }
-          >
-            <ForecastChart key={chartKey} rows={rows} range={idx} onRangeChange={setRange} forecastLabel={m.params.label} />
-          </Card>
-
-          <Card title="Forecast error over time" subtitle="Error = forecast − actual, hourly. Above zero means the forecast was too high.">
-            <ErrorChart points={m.points} window={timeWindow} />
-          </Card>
-
-          <div className="two-col">
-            <Card
-              title="Error by forecast lead time"
-              subtitle="MAE of every published forecast run for the selected dates, by hours between publish and delivery."
-            >
-              <HorizonChart buckets={data.horizon.buckets} usedRange={usedRange} />
+            <Card aria-labelledby="hero-title">
+              <CardHeader
+                id="hero-title"
+                title="Actual vs forecast wind generation"
+                description="Drag the handles under the chart to zoom. The error chart follows the same window."
+                actions={
+                  zoomed && (
+                    <>
+                      <span className="text-sm text-fg-2">
+                        {fmtDay(timeWindow[0])} – {fmtDay(timeWindow[1])}
+                      </span>
+                      <Button onClick={resetZoom}>
+                        <ZoomOut aria-hidden />
+                        Reset zoom
+                      </Button>
+                    </>
+                  )
+                }
+              />
+              <CardBody>
+                <figure>
+                  <figcaption className="sr-only">
+                    Line chart of actual and forecast GB wind generation, {fmtRange(m.params.start, m.params.end)}. Mean actual{" "}
+                    {fmtMW(m.overall.mean_actual)}, mean forecast {fmtMW(m.overall.mean_forecast)}. The table below lists the daily figures.
+                  </figcaption>
+                  <Suspense fallback={<ChartSkeleton className="h-[328px] sm:h-[408px]" />}>
+                    <ForecastChart key={chartKey} rows={rows} range={idx} onRangeChange={setRange} forecastLabel={m.params.label} />
+                  </Suspense>
+                </figure>
+              </CardBody>
             </Card>
-            <Card title="Key insights" subtitle={`For ${m.params.label}, ${m.params.start} to ${m.params.end}`}>
-              <Insights items={m.insights} />
-            </Card>
-          </div>
 
-          <Card title="Day-by-day accuracy" subtitle="Click a column to sort. Bar under MAE shows the day's MAE relative to the worst day.">
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Card aria-labelledby="error-title">
+                <CardHeader id="error-title" title="Forecast error over time" description="Forecast − actual, hourly. Above zero means the forecast was too high." />
+                <CardBody>
+                  <Suspense fallback={<ChartSkeleton className="h-[268px] sm:h-[308px]" />}>
+                    <ErrorChart points={m.points} window={timeWindow} />
+                  </Suspense>
+                </CardBody>
+              </Card>
+              <Card aria-labelledby="horizon-title">
+                <CardHeader
+                  id="horizon-title"
+                  title="Error by forecast horizon"
+                  description="MAE of every published forecast run, by hours between publication and delivery."
+                />
+                <CardBody>
+                  <Suspense fallback={<ChartSkeleton className="h-[268px] sm:h-[308px]" />}>
+                    <HorizonChart buckets={data.horizon.buckets} usedRange={usedRange} />
+                  </Suspense>
+                </CardBody>
+              </Card>
+            </div>
+
+            <InsightsPanel items={m.insights} context={scope} />
             <DailyTable daily={m.daily} points={m.points} fileTag={fileTag} />
-          </Card>
-        </main>
-      )}
+          </div>
+        )}
+      </main>
 
-      <footer className="footer">
-        Data: Elexon BMRS Insights API (FUELHH fuelType=WIND, WINDFOR). Forecasts are hourly; metrics use hours where both forecast
-        and actual exist. Error = forecast − actual.
+      <footer className="mx-auto max-w-[1440px] px-4 pb-8 text-xs text-fg-3 md:px-6">
+        Data: Elexon BMRS (FUELHH wind outturn, WINDFOR forecasts). Forecasts are hourly; metrics use hours where both exist. Error =
+        forecast − actual. Times in UK local time.
       </footer>
-    </div>
+    </TooltipProvider>
   );
 }

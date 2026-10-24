@@ -1,7 +1,7 @@
-/** Fetches everything the dashboard needs for one query; keeps the previous data while refetching. */
+/** Data hooks: dashboard bundle for one query (keeps previous data while refetching) and API health. */
 import { useEffect, useState } from "react";
 import { api } from "./api";
-import type { ActualPoint, ErrorByHorizonResponse, MetricsResponse, Query } from "./types";
+import type { ActualPoint, ErrorByHorizonResponse, HealthResponse, MetricsResponse, Query } from "./types";
 
 export interface Dashboard {
   actuals: ActualPoint[];
@@ -39,6 +39,17 @@ export function useDashboard(q: Query) {
   }, [q.start, q.end, q.mode, q.cutoffHour, q.cutoffMinute, q.horizonHours, attempt]);
 
   return { ...state, retry: () => setAttempt((a) => a + 1) };
+}
+
+/** API health, re-checked whenever new dashboard data arrives. */
+export function useHealth(trigger: unknown): HealthResponse | null {
+  const [health, setHealth] = useState<HealthResponse | null>(null);
+  useEffect(() => {
+    const ctl = new AbortController();
+    api.health(ctl.signal).then(setHealth, () => !ctl.signal.aborted && setHealth(null));
+    return () => ctl.abort();
+  }, [trigger]);
+  return health;
 }
 
 /** Value that only updates after `ms` without changes (keeps sliders from flooding the API). */

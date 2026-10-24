@@ -1,12 +1,11 @@
-/** Forecast error over time (forecast − actual): one area, red above zero (over-forecast), blue below. */
+/** Forecast error over time (forecast − actual): one area, blue above zero (too high), amber below (too low). */
 import { useId, useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { fmtCompact, fmtDateTime, fmtMW, fmtSignedMW, tickFormatter } from "../lib/format";
-import { niceTicks } from "../lib/scale";
-import { timeTicks } from "../lib/time";
-import type { JoinedPoint } from "../types";
-import { TooltipCard } from "./ChartTooltip";
-import { Legend } from "./Legend";
+import { fmtDateTime, fmtMW, fmtNum, fmtSignedMW, tickFormatter } from "../../lib/format";
+import { niceTicks } from "../../lib/scale";
+import { timeTicks } from "../../lib/time";
+import type { JoinedPoint } from "../../types";
+import { AXIS, ChartLegend, TooltipCard, useNarrow, Y_LABEL } from "./common";
 
 interface Row {
   t: number;
@@ -14,8 +13,6 @@ interface Row {
   actual: number;
   forecast: number;
 }
-
-const AXIS = { stroke: "var(--axis)", tick: { fill: "var(--text-muted)", fontSize: 12 }, tickLine: false };
 
 /** Gradient stops that switch colour exactly at y = 0 within the area's bounding box. */
 function SplitGradient({ id, offset, opacity }: { id: string; offset: number; opacity: number }) {
@@ -27,16 +24,11 @@ function SplitGradient({ id, offset, opacity }: { id: string; offset: number; op
   );
 }
 
-export function ErrorChart({ points, window: [t0, t1] }: { points: JoinedPoint[]; window: [number, number] }) {
+export default function ErrorChart({ points, window: [t0, t1] }: { points: JoinedPoint[]; window: [number, number] }) {
+  const narrow = useNarrow();
   const id = useId().replace(/:/g, "");
   const rows = useMemo<Row[]>(
-    () =>
-      points.map((p) => ({
-        t: Date.parse(p.start_time),
-        error: p.error_mw,
-        actual: p.actual_mw,
-        forecast: p.forecast_mw,
-      })),
+    () => points.map((p) => ({ t: Date.parse(p.start_time), error: p.error_mw, actual: p.actual_mw, forecast: p.forecast_mw })),
     [points],
   );
   const visible = rows.filter((r) => r.t >= t0 && r.t <= t1);
@@ -47,17 +39,17 @@ export function ErrorChart({ points, window: [t0, t1] }: { points: JoinedPoint[]
 
   return (
     <>
-      <Legend
+      <ChartLegend
         items={[
-          { label: "Over-forecast (forecast above actual)", color: "var(--over)", shape: "rect" },
-          { label: "Under-forecast (forecast below actual)", color: "var(--under)", shape: "rect" },
+          { label: "Forecast too high", color: "var(--over)", shape: "swatch" },
+          { label: "Forecast too low", color: "var(--under)", shape: "swatch" },
         ]}
       />
-      <ResponsiveContainer width="100%" height={220}>
-        <AreaChart data={visible} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+      <ResponsiveContainer width="100%" height={narrow ? 240 : 280}>
+        <AreaChart data={visible} margin={{ top: 24, right: 8, bottom: 0, left: 0 }}>
           <defs>
             <SplitGradient id={`${id}-stroke`} offset={zeroAt} opacity={1} />
-            <SplitGradient id={`${id}-fill`} offset={zeroAt} opacity={0.16} />
+            <SplitGradient id={`${id}-fill`} offset={zeroAt} opacity={0.18} />
           </defs>
           <CartesianGrid vertical={false} stroke="var(--grid)" />
           <XAxis
@@ -65,15 +57,23 @@ export function ErrorChart({ points, window: [t0, t1] }: { points: JoinedPoint[]
             type="number"
             scale="time"
             domain={[t0, t1]}
-            ticks={timeTicks(t0, t1)}
+            ticks={timeTicks(t0, t1, narrow ? 4 : 6)}
             tickFormatter={tickFormatter(t1 - t0)}
             allowDataOverflow
             {...AXIS}
           />
-          <YAxis tickFormatter={fmtCompact} width={44} domain={[yTicks[0], yTicks[yTicks.length - 1]]} ticks={yTicks} {...AXIS} axisLine={false} />
-          <ReferenceLine y={0} stroke="var(--axis)" />
+          <YAxis
+            width={56}
+            domain={[yTicks[0], yTicks[yTicks.length - 1]]}
+            ticks={yTicks}
+            tickFormatter={fmtNum}
+            label={Y_LABEL}
+            {...AXIS}
+            axisLine={false}
+          />
+          <ReferenceLine y={0} stroke="var(--fg-3)" />
           <Tooltip
-            cursor={{ stroke: "var(--text-muted)", strokeWidth: 1 }}
+            cursor={{ stroke: "var(--fg-3)", strokeWidth: 1 }}
             content={({ active, payload }) => {
               const row = active && (payload?.[0]?.payload as Row | undefined);
               if (!row) return null;
@@ -81,9 +81,9 @@ export function ErrorChart({ points, window: [t0, t1] }: { points: JoinedPoint[]
                 <TooltipCard
                   title={fmtDateTime(row.t)}
                   rows={[
-                    { label: "Error", value: fmtSignedMW(row.error), color: row.error >= 0 ? "var(--over)" : "var(--under)" },
-                    { label: "Forecast", value: fmtMW(row.forecast) },
-                    { label: "Actual", value: fmtMW(row.actual) },
+                    { label: row.error >= 0 ? "Error (too high)" : "Error (too low)", value: fmtSignedMW(row.error), color: row.error >= 0 ? "var(--over)" : "var(--under)" },
+                    { label: "Forecast", value: fmtMW(row.forecast), color: "var(--forecast)" },
+                    { label: "Actual", value: fmtMW(row.actual), color: "var(--actual)" },
                   ]}
                 />
               );
@@ -98,7 +98,7 @@ export function ErrorChart({ points, window: [t0, t1] }: { points: JoinedPoint[]
             strokeWidth={1.5}
             fill={`url(#${id}-fill)`}
             isAnimationActive={false}
-            activeDot={{ r: 4, stroke: "var(--surface-1)", strokeWidth: 2, fill: "var(--text-secondary)" }}
+            activeDot={{ r: 4, stroke: "var(--surface)", strokeWidth: 2, fill: "var(--fg-2)" }}
           />
         </AreaChart>
       </ResponsiveContainer>
