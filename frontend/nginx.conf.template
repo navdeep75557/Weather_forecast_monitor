@@ -1,0 +1,25 @@
+server {
+  listen 80;
+  root /usr/share/nginx/html;
+  index index.html;
+
+  # Forward API calls to the backend; resolved per request so nginx starts even if the backend is down.
+  location /api/ {
+    resolver ${NGINX_RESOLVER} valid=30s ipv6=off;
+    set $api ${BACKEND_URL};
+    proxy_pass $api;
+    proxy_set_header Host $host;
+    proxy_read_timeout 60s;
+  }
+
+  location /assets/ {
+    add_header Cache-Control "public, max-age=31536000, immutable";
+  }
+
+  location / {
+    try_files $uri /index.html;
+  }
+
+  gzip on;
+  gzip_types text/css application/javascript application/json image/svg+xml;
+}

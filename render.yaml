@@ -1,0 +1,17 @@
+# Render Blueprint for the API (Dashboard -> New -> Blueprint, pick this repo).
+services:
+  - type: web
+    name: wind-forecast-api
+    runtime: python
+    rootDir: backend
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ALLOWED_ORIGINS
+        sync: false # set to your Vercel URL, e.g. https://wind-forecast-monitor.vercel.app
+      - key: REFRESH_ON_STARTUP
+        value: "false"
