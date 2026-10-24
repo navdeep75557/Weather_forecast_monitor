@@ -1,11 +1,15 @@
 """API smoke tests against the committed January 2026 data snapshot, plus client retry behaviour."""
 
-from datetime import date
+from contextlib import contextmanager
+from datetime import date, datetime, timezone
 
 import httpx
+import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
+from app.config import Settings
+from app.data_store import DataStore
 from app.elexon import ElexonClient, ElexonError
 from app.main import app
 
@@ -82,6 +86,72 @@ def test_503_when_data_missing(client):
         store.actuals = saved
 
 
+@contextmanager
+def patched(store, **frames):
+    """Temporarily replace store DataFrames."""
+    saved = {k: getattr(store, k) for k in frames}
+    for k, v in frames.items():
+        setattr(store, k, v)
+    try:
+        yield
+    finally:
+        for k, v in saved.items():
+            setattr(store, k, v)
+
+
+def _on_day(df, day: str):
+    lo = pd.Timestamp(day, tz="UTC")
+    return (df["start_time"] >= lo) & (df["start_time"] < lo + pd.Timedelta(days=1))
+
+
+def test_zero_actuals_do_not_break_metrics(client):
+    store = app.state.store
+    zeroed = store.actuals.copy()
+    zeroed.loc[_on_day(zeroed, "2026-01-10"), "actual_mw"] = 0.0
+    with patched(store, actuals=zeroed):
+        day = client.get("/api/metrics", params={"start": "2026-01-10", "end": "2026-01-10"})
+        span = client.get("/api/metrics", params={"start": "2026-01-09", "end": "2026-01-11"}).json()["overall"]
+    assert day.status_code == 200
+    assert day.json()["overall"]["mape"] is None and day.json()["overall"]["mae"] > 0
+    assert span["mape_n"] == span["n"] - 24  # zero-actual hours excluded from MAPE only
+
+
+def test_range_without_forecasts_returns_empty_metrics(client):
+    store = app.state.store
+    with patched(store, forecasts=store.forecasts[~_on_day(store.forecasts, "2026-01-10")]):
+        body = client.get("/api/metrics", params={"start": "2026-01-10", "end": "2026-01-10"}).json()
+        latest = client.get("/api/forecasts/latest", params={"start": "2026-01-10", "end": "2026-01-10"}).json()
+        buckets = client.get("/api/error-by-horizon", params={"start": "2026-01-10", "end": "2026-01-10"}).json()["buckets"]
+    assert body["overall"]["n"] == 0 and body["points"] == [] and body["daily"] == []
+    assert body["insights"][0]["text"].startswith("No forecast")
+    assert latest == [] and all(b["n"] == 0 for b in buckets)
+
+
+def test_missing_forecasts_are_reported_in_coverage(client):
+    cov = client.get("/api/metrics", params={"horizon_hours": 48, "include_points": False}).json()["coverage"]
+    assert cov["target_hours"] == 744
+    assert cov["with_forecast"] == cov["matched_with_actual"] < 744  # runs don't reach 48h ahead for late hours
+
+
+def test_elexon_outage_degrades_health_and_returns_503(client, tmp_path, monkeypatch):
+    def down(*_args, **_kwargs):
+        raise ElexonError("Elexon down")
+
+    monkeypatch.setattr(ElexonClient, "fetch_actuals", down)
+    store = DataStore(Settings(data_dir=tmp_path))  # empty dir: no snapshot to fall back on
+    store.load()
+    assert not store.ready and "Elexon down" in store.error
+    real = app.state.store
+    app.state.store = store
+    try:
+        health = client.get("/api/health").json()
+        resp = client.get("/api/metrics")
+    finally:
+        app.state.store = real
+    assert health["status"] == "degraded" and "Elexon down" in health["error"]
+    assert resp.status_code == 503 and "Elexon down" in resp.json()["detail"]
+
+
 def _client(handler) -> ElexonClient:
     http = httpx.Client(transport=httpx.MockTransport(handler))
     return ElexonClient("https://x.test", max_retries=3, http=http, sleep=lambda _: None)
@@ -111,6 +181,18 @@ def test_client_fails_fast_on_4xx():
     with pytest.raises(ElexonError):
         _client(handler).fetch_actuals(date(2026, 1, 1), date(2026, 1, 1))
     assert len(calls) == 1
+
+
+def test_client_gives_up_after_repeated_timeouts():
+    calls = []
+
+    def handler(request):
+        calls.append(request)
+        raise httpx.ReadTimeout("timed out", request=request)
+
+    with pytest.raises(ElexonError, match="after 4 attempts"):
+        _client(handler).fetch_forecasts(datetime(2026, 1, 1, tzinfo=timezone.utc), datetime(2026, 1, 2, tzinfo=timezone.utc))
+    assert len(calls) == 4  # 1 try + 3 retries
 
 
 def test_client_chunks_by_week():

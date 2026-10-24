@@ -33,7 +33,8 @@ def build_insights(
 
     ratio = rmse / mae if mae else 0
     spread = "a few large misses drive much of the error" if ratio > 1.3 else "errors are fairly evenly spread rather than dominated by outliers"
-    out.append({"kind": "accuracy", "text": f"Typical error (MAE) was {_mw(mae)}, about {mae / mean * 100:.0f}% of average output; RMSE/MAE = {ratio:.2f}, so {spread}."})
+    share = f", about {mae / mean * 100:.0f}% of average output" if mean else ""
+    out.append({"kind": "accuracy", "text": f"Typical error (MAE) was {_mw(mae)}{share}; RMSE/MAE = {ratio:.2f}, so {spread}."})
 
     worst = joined.loc[joined["error_mw"].abs().idxmax()]
     when = worst["start_time"].tz_convert(LONDON).strftime("%d %b %H:%M")
@@ -43,7 +44,7 @@ def build_insights(
         cut = (1 - fresh["mae"] / mae) * 100
         out.append({"kind": "decision", "text": f"Waiting for the latest pre-delivery forecast would cut MAE from {_mw(mae)} to {_mw(fresh['mae'])} ({cut:.0f}% lower). That gap is the accuracy cost of committing a day ahead."})
 
-    buckets = [b for b in horizon if b["n"] and b["mae"] is not None]
+    buckets = [b for b in horizon if b["n"] and b["mae"]]
     if len(buckets) >= 2:
         first, last = buckets[0], buckets[-1]
         change = (last["mae"] / first["mae"] - 1) * 100
