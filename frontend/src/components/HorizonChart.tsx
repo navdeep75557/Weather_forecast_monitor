@@ -1,6 +1,7 @@
 /** MAE by forecast lead time across all published runs; buckets used by the current selection are accented. */
 import { Bar, BarChart, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fmtCompact, fmtMW, fmtNum, fmtPct, fmtSignedMW } from "../lib/format";
+import { niceTicks } from "../lib/scale";
 import type { HorizonBucket } from "../types";
 import { TooltipCard } from "./ChartTooltip";
 import { Legend } from "./Legend";
@@ -19,6 +20,7 @@ export function HorizonChart({ buckets, usedRange }: { buckets: HorizonBucket[];
     selected: inUse(b) ? b.mae : null,
     other: inUse(b) ? null : b.mae,
   }));
+  const yTicks = niceTicks(0, Math.max(0, ...buckets.map((b) => b.mae ?? 0)), 6);
   const label = (v: unknown) => (typeof v === "number" ? fmtCompact(Math.round(v)) : "");
   return (
     <>
@@ -28,11 +30,11 @@ export function HorizonChart({ buckets, usedRange }: { buckets: HorizonBucket[];
           { label: "Other lead times", color: "var(--deemph)", shape: "rect" },
         ]}
       />
-      <ResponsiveContainer width="100%" height={260}>
+      <ResponsiveContainer width="100%" height={320}>
         <BarChart data={rows} margin={{ top: 20, right: 8, bottom: 0, left: 0 }} barCategoryGap="20%">
           <CartesianGrid vertical={false} stroke="var(--grid)" />
           <XAxis dataKey="bucket" {...AXIS} />
-          <YAxis tickFormatter={fmtCompact} width={44} {...AXIS} axisLine={false} />
+          <YAxis tickFormatter={fmtCompact} width={44} domain={[0, yTicks[yTicks.length - 1]]} ticks={yTicks} {...AXIS} axisLine={false} />
           <Tooltip
             cursor={{ fill: "var(--hover-wash)" }}
             content={({ active, payload }) => {

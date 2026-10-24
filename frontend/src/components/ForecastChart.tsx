@@ -1,6 +1,7 @@
 /** Actual (half-hourly) vs selected forecast (hourly) with a brush that zooms both time charts. */
 import { Brush, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fmtCompact, fmtDateTime, fmtDay, fmtMW, fmtSignedMW, tickFormatter } from "../lib/format";
+import { niceTicks } from "../lib/scale";
 import { timeTicks } from "../lib/time";
 import type { ActualPoint, JoinedPoint } from "../types";
 import { TooltipCard } from "./ChartTooltip";
@@ -44,6 +45,8 @@ interface Props {
 export function ForecastChart({ rows, range, onRangeChange, forecastLabel }: Props) {
   const t0 = rows[range[0]]?.t ?? 0;
   const t1 = rows[range[1]]?.t ?? 0;
+  const yMax = Math.max(0, ...rows.map((r) => Math.max(r.actual ?? 0, r.forecast ?? 0)));
+  const yTicks = niceTicks(0, yMax, 6);
   return (
     <>
       <Legend
@@ -64,7 +67,7 @@ export function ForecastChart({ rows, range, onRangeChange, forecastLabel }: Pro
             tickFormatter={tickFormatter(t1 - t0)}
             {...AXIS}
           />
-          <YAxis tickFormatter={fmtCompact} width={44} {...AXIS} axisLine={false} />
+          <YAxis tickFormatter={fmtCompact} width={44} domain={[yTicks[0], yTicks[yTicks.length - 1]]} ticks={yTicks} {...AXIS} axisLine={false} />
           <Tooltip
             cursor={{ stroke: "var(--text-muted)", strokeWidth: 1 }}
             content={({ active, payload }) => {

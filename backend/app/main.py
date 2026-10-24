@@ -43,6 +43,7 @@ app = FastAPI(title="Wind Forecast Monitor API", version="1.0.0", lifespan=lifes
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.origins,
+    allow_origin_regex=settings.allowed_origin_regex or None,
     allow_methods=["GET"],
     allow_headers=["*"],
 )

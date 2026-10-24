@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     elexon_base_url: str = "https://data.elexon.co.uk/bmrs/api/v1"
     data_dir: Path = Path(__file__).resolve().parent.parent / "data"
     allowed_origins: str = "http://localhost:5173,http://localhost:3000"
+    allowed_origin_regex: str | None = None  # e.g. https://wind-forecast-monitor.*\.vercel\.app for preview deploys
     refresh_on_startup: bool = False
     request_timeout_s: float = 30.0
     max_retries: int = 4

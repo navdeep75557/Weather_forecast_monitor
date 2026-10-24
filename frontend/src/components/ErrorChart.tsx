@@ -2,6 +2,7 @@
 import { useId, useMemo } from "react";
 import { Area, AreaChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { fmtCompact, fmtDateTime, fmtMW, fmtSignedMW, tickFormatter } from "../lib/format";
+import { niceTicks } from "../lib/scale";
 import { timeTicks } from "../lib/time";
 import type { JoinedPoint } from "../types";
 import { TooltipCard } from "./ChartTooltip";
@@ -42,6 +43,7 @@ export function ErrorChart({ points, window: [t0, t1] }: { points: JoinedPoint[]
   const max = Math.max(0, ...visible.map((r) => r.error));
   const min = Math.min(0, ...visible.map((r) => r.error));
   const zeroAt = max - min > 0 ? max / (max - min) : 1;
+  const yTicks = niceTicks(min, max, 6);
 
   return (
     <>
@@ -68,7 +70,7 @@ export function ErrorChart({ points, window: [t0, t1] }: { points: JoinedPoint[]
             allowDataOverflow
             {...AXIS}
           />
-          <YAxis tickFormatter={fmtCompact} width={44} {...AXIS} axisLine={false} />
+          <YAxis tickFormatter={fmtCompact} width={44} domain={[yTicks[0], yTicks[yTicks.length - 1]]} ticks={yTicks} {...AXIS} axisLine={false} />
           <ReferenceLine y={0} stroke="var(--axis)" />
           <Tooltip
             cursor={{ stroke: "var(--text-muted)", strokeWidth: 1 }}
