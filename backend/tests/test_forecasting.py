@@ -1,10 +1,12 @@
 """Forecast selection: D-1 cutoff, fixed horizon, DST handling and the join."""
 
-from datetime import date
+from datetime import date, datetime, time, timedelta, timezone
 
 import pandas as pd
+import pytest
 
 from app import forecasting as fc
+from app.config import LONDON
 from conftest import actuals, forecasts, ts
 
 TARGET = "2026-01-10T12:00"
@@ -72,6 +74,24 @@ def test_cutoff_is_london_time_across_dst():
         ts("2026-03-29T08:50"),
         ts("2026-10-25T09:50"),
     ]
+
+
+def _reference_cutoff(target: pd.Timestamp, hh: int, mm: int) -> pd.Timestamp:
+    """Independent zoneinfo implementation of 'HH:MM London on D-1'."""
+    wall = datetime.combine(target.tz_convert(LONDON).date() - timedelta(days=1), time(hh, mm))
+    utc = wall.replace(tzinfo=LONDON).astimezone(timezone.utc)  # fold=0: earlier instant if ambiguous
+    if utc.astimezone(LONDON).replace(tzinfo=None) != wall:  # spring-forward gap: first valid instant
+        utc = wall.replace(hour=2, minute=0, tzinfo=LONDON).astimezone(timezone.utc)
+    return pd.Timestamp(utc)
+
+
+@pytest.mark.parametrize("hh,mm", [(0, 0), (1, 30), (9, 50), (23, 59)])
+def test_cutoffs_match_zoneinfo_for_every_hour_of_2026(hh, mm):
+    targets = pd.Series(pd.date_range("2026-01-01", "2027-01-01", freq="1h", tz="UTC", inclusive="left"))
+    got = fc.decision_cutoffs(targets, hh, mm)
+    expected = pd.Series([_reference_cutoff(t, hh, mm) for t in targets])
+    mismatch = targets[got.values != expected.values]
+    assert mismatch.empty, f"{len(mismatch)} mismatches, first at {mismatch.iloc[0]}"
 
 
 def test_horizon_mode_requires_minimum_lead_time():
