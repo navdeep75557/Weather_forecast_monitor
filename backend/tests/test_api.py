@@ -114,6 +114,12 @@ def test_responses_are_cached_and_cacheable(client):
     assert client.get("/api/metrics", params={"start": "2026-02-01"}).headers["cache-control"] == "no-store"
 
 
+def test_large_responses_are_gzipped(client):
+    resp = client.get("/api/metrics", headers={"Accept-Encoding": "gzip"})
+    assert resp.headers["content-encoding"] == "gzip"
+    assert int(resp.headers["content-length"]) < len(resp.content) / 3
+
+
 def test_zero_actuals_do_not_break_metrics(client):
     store = app.state.store
     zeroed = store.actuals.copy()

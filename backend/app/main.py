@@ -10,6 +10,7 @@ from typing import Annotated, Any
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel, TypeAdapter
 
@@ -49,6 +50,7 @@ app.add_middleware(
     allow_methods=["GET"],
     allow_headers=["*"],
 )
+app.add_middleware(GZipMiddleware, minimum_size=1024)  # metrics JSON ~120 KB -> ~20 KB
 
 
 # Data is immutable per deployment: let browsers and the CDN cache data responses.
