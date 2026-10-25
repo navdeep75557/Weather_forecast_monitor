@@ -1,8 +1,8 @@
 name: Warm production
 
 # Vercel deploys main on every push (~1 min). Each deployment starts with a cold Python function
-# (~3 s) and an empty CDN cache, so wait for the new deployment to answer, then wake the API and
-# fill the CDN cache for the default dashboard queries before real visitors arrive.
+# (~3 s) and an empty CDN cache, so wait for the new deployment to answer, then wake the API before
+# real visitors arrive. The CDN fill only covers the edge region nearest the runner (caches are regional).
 # (Triggered on push because this Vercel project doesn't emit GitHub deployment_status events.)
 on:
   push:

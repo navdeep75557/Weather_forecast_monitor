@@ -188,7 +188,7 @@ curl https://<project>.vercel.app/api/health  # expect "status":"ok"
 cd frontend && E2E_BASE_URL=https://<project>.vercel.app npm run e2e
 ```
 
-No environment variables are required. After each push, [`.github/workflows/warm.yml`](.github/workflows/warm.yml) waits for the new deployment, then wakes the API and fills the CDN cache for the default view, so the first visitor doesn't hit a cold start. The Python cold start is about 2-3 s (pandas import plus a 110 ms data load); after that, cached queries take about 10 ms.
+No environment variables are required. After each push, [`.github/workflows/warm.yml`](.github/workflows/warm.yml) waits for the new deployment, then wakes the API, so the first visitor doesn't hit a cold start. It also fills the CDN cache for the default view, though only in the edge region nearest the GitHub runner, because Vercel caches per region. The Python cold start is about 2-3 s (pandas import plus a 110 ms data load); after that, cached queries take about 10 ms.
 
 **Alternative (separate API host):** deploy `backend/` to Render (`render.yaml`, or a web service with root `backend`, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/api/health`, `PYTHON_VERSION=3.11.9`) or Heroku (`git subtree push --prefix backend heroku main`). Then deploy the frontend with root `frontend`, set `VITE_API_URL=https://<api-host>`, and set `ALLOWED_ORIGINS` (plus optional `ALLOWED_ORIGIN_REGEX` for preview URLs) on the API.
 
