@@ -5,6 +5,7 @@ from collections.abc import Callable, Hashable
 from contextlib import asynccontextmanager
 from datetime import date
 from functools import cache
+from threading import Lock
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request
@@ -34,11 +35,25 @@ log = logging.getLogger(__name__)
 settings = get_settings()
 
 
+_store_lock = Lock()
+
+
+def store_for(app: FastAPI) -> DataStore:
+    """The app's data store, loading it on first use if the lifespan hook didn't run (serverless runtimes)."""
+    store = getattr(app.state, "store", None)
+    if store is None:
+        with _store_lock:
+            store = getattr(app.state, "store", None)
+            if store is None:
+                store = DataStore(settings)
+                store.load(settings.refresh_on_startup)
+                app.state.store = store
+    return store
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    store = DataStore(settings)
-    await run_in_threadpool(store.load, settings.refresh_on_startup)
-    app.state.store = store
+    await run_in_threadpool(store_for, app)
     yield
 
 
@@ -79,7 +94,7 @@ async def unhandled(_: Request, exc: Exception) -> JSONResponse:
 
 def get_store(request: Request) -> DataStore:
     """The loaded data store, or 503 if Elexon data is unavailable."""
-    store: DataStore = request.app.state.store
+    store = store_for(request.app)
     if not store.ready:
         raise HTTPException(503, detail=f"Elexon data not loaded yet: {store.error or 'loading'}")
     return store
@@ -157,7 +172,7 @@ def root() -> dict:
 @app.get("/api/health", response_model=HealthResponse)
 def health(request: Request) -> HealthResponse:
     """Service and data-load status."""
-    store: DataStore = request.app.state.store
+    store = store_for(request.app)
     return HealthResponse(
         status="ok" if store.ready else "degraded",
         source=store.source,

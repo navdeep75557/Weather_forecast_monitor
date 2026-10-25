@@ -173,6 +173,18 @@ def _client(handler) -> ElexonClient:
     return ElexonClient("https://x.test", max_retries=3, http=http, sleep=lambda _: None)
 
 
+def test_store_loads_lazily_without_lifespan(client):
+    """Serverless runtimes may skip ASGI lifespan; the first request must load the data itself."""
+    real = app.state.store
+    del app.state.store
+    try:
+        bare = TestClient(app)  # not used as a context manager: lifespan never runs
+        assert bare.get("/api/health").json()["status"] == "ok"
+        assert bare.get("/api/metrics", params={"include_points": False}).json()["overall"]["n"] == 744
+    finally:
+        app.state.store = real
+
+
 def test_client_retries_then_succeeds():
     calls = []
 
