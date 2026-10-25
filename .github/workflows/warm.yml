@@ -28,7 +28,7 @@ jobs:
 
       - name: Fill the CDN cache for the default view
         run: |
-          Q="start=2026-01-01&end=2026-01-31"
+          Q="start=2026-01-02&end=2026-02-01"
           for path in "/" "/api/actuals?$Q" "/api/metrics?$Q&mode=cutoff&cutoff_hour=9&cutoff_minute=50" "/api/error-by-horizon?$Q"; do
             # Responses vary by encoding; warm the variants browsers send.
             for enc in "gzip, deflate, br, zstd" "gzip, deflate, br" "gzip, deflate"; do
@@ -40,7 +40,7 @@ jobs:
         run: |
           sleep 120
           curl -fsS "$SITE/api/health"; echo
-          Q="start=2026-01-01&end=2026-01-31"
+          Q="start=2026-01-02&end=2026-02-01"
           for path in "/api/actuals?$Q" "/api/metrics?$Q&mode=cutoff&cutoff_hour=9&cutoff_minute=50" "/api/error-by-horizon?$Q"; do
             for enc in "gzip, deflate, br, zstd" "gzip, deflate, br" "gzip, deflate"; do
               curl -fsS -o /dev/null -H "Accept-Encoding: $enc" -w "%{http_code} %{time_total}s $path ($enc)\n" "$SITE$path"
