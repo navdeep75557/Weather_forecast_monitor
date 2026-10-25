@@ -1,9 +1,11 @@
 import { defineConfig } from "@playwright/test";
+import { resolve } from "node:path";
 
 // Run against the local production build (`vite preview` + API, started automatically if not running),
 // or against any deployment with E2E_BASE_URL=https://... (e.g. Docker on :8080 or Vercel).
 const external = process.env.E2E_BASE_URL;
-const python = process.env.E2E_PYTHON ?? "python";
+// Absolute + quoted so a relative E2E_PYTHON works from the backend cwd and under Windows cmd.exe.
+const python = process.env.E2E_PYTHON ? `"${resolve(process.env.E2E_PYTHON)}"` : "python";
 
 export default defineConfig({
   testDir: "./e2e",
