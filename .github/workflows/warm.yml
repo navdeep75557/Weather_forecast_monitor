@@ -1,0 +1,31 @@
+name: Warm production
+
+# After each successful production deployment, wake the Python function and fill the CDN cache
+# for the default dashboard queries, so the first visitor doesn't pay the ~3 s cold start.
+on: deployment_status
+
+jobs:
+  warm:
+    if: github.event.deployment_status.state == 'success' && startsWith(github.event.deployment.environment, 'Production')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      SITE: https://wind-forecast-monitor-eosin.vercel.app
+    steps:
+      - name: Wake the API (retry while the alias switches over)
+        run: |
+          for i in $(seq 1 12); do
+            curl -fsS "$SITE/api/health" && exit 0
+            sleep 5
+          done
+          exit 1
+
+      - name: Fill the CDN cache for the default view
+        run: |
+          Q="start=2026-01-01&end=2026-01-31"
+          for path in "/" "/api/actuals?$Q" "/api/metrics?$Q&mode=cutoff&cutoff_hour=9&cutoff_minute=50" "/api/error-by-horizon?$Q"; do
+            # Responses vary by encoding; warm the variants browsers send.
+            for enc in "gzip, deflate, br, zstd" "gzip, deflate, br" "gzip, deflate"; do
+              curl -fsS -o /dev/null -H "Accept-Encoding: $enc" -w "%{http_code} %{time_total}s $path ($enc)\n" "$SITE$path"
+            done
+          done
