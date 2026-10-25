@@ -12,7 +12,7 @@ type Key = "date" | "n" | "mae" | "rmse" | "bias" | "mape" | "p90_abs_error" | "
 type Heat = "magnitude" | "direction" | null;
 
 const COLUMNS: { key: Key; label: string; heat: Heat; fmt: (d: DailyMetrics) => string }[] = [
-  { key: "date", label: "Date", heat: null, fmt: (d) => fmtDateLong(d.date) },
+  { key: "date", label: "Delivery day", heat: null, fmt: (d) => fmtDateLong(d.date) },
   { key: "mae", label: "MAE (MW)", heat: "magnitude", fmt: (d) => fmtNum(d.mae) },
   { key: "rmse", label: "RMSE (MW)", heat: "magnitude", fmt: (d) => fmtNum(d.rmse) },
   { key: "bias", label: "Bias (MW)", heat: "direction", fmt: (d) => fmtSigned(d.bias) },
@@ -66,7 +66,7 @@ export function DailyTable({ daily, points, fileTag }: Props) {
     downloadCSV(
       `daily-metrics-${fileTag}.csv`,
       toCSV(
-        ["date", "hours", "mae_mw", "rmse_mw", "bias_mw", "mape_pct", "p90_abs_error_mw", "max_abs_error_mw", "mean_actual_mw", "mean_forecast_mw"],
+        ["delivery_date", "hours", "mae_mw", "rmse_mw", "bias_mw", "mape_pct", "p90_abs_error_mw", "max_abs_error_mw", "mean_actual_mw", "mean_forecast_mw"],
         daily.map((d) => [d.date, d.n, d.mae, d.rmse, d.bias, d.mape, d.p90_abs_error, d.max_abs_error, d.mean_actual, d.mean_forecast]),
       ),
     );

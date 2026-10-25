@@ -3,8 +3,8 @@ import { Button } from "./ui/Button";
 
 const STEPS = [
   {
-    title: "Pick dates and a rule",
-    text: "Decision cutoff shows the forecast you could actually trade on (published by 09:50 the day before). Fixed horizon shows forecasts made H hours ahead.",
+    title: "Pick decision days and a rule",
+    text: "Choose the January days the buying decision was made (delivery is the next day). Decision cutoff uses the forecast you could actually trade on, published by 09:50 that day. Fixed horizon uses forecasts made H hours ahead.",
   },
   {
     title: "Read the cards",

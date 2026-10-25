@@ -8,7 +8,7 @@ export function timeTicks(t0: number, t1: number, maxTicks = 8): number[] {
   const span = t1 - t0;
   const steps = [3 * HOUR, 6 * HOUR, 12 * HOUR, DAY, 2 * DAY, 4 * DAY, 7 * DAY];
   const step = steps.find((s) => span / s <= maxTicks) ?? 7 * DAY;
-  // January is GMT, so UTC midnight == London midnight.
+  // January/February are GMT, so UTC midnight == London midnight.
   const first = Math.ceil(t0 / step) * step;
   const ticks: number[] = [];
   for (let t = first; t <= t1; t += step) ticks.push(t);

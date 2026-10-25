@@ -2,6 +2,7 @@ import { Info, LoaderCircle, RotateCcw } from "lucide-react";
 import { Suspense, lazy } from "react";
 import { useAfterPaint } from "../lib/afterPaint";
 import { cn } from "../lib/cn";
+import { fmtRange } from "../lib/format";
 import { cutoffLabel, logicSummary } from "../lib/query";
 import type { Query } from "../types";
 import { RangeTrigger } from "./RangeTrigger";
@@ -33,6 +34,7 @@ export function FilterBar({ query, onChange, onReset, isDefault, refreshing }: F
     <div className="z-30 border-b border-border bg-bg/90 backdrop-blur transition-colors duration-150 md:sticky md:top-0">
       <div className="mx-auto flex max-w-[1440px] flex-col gap-2 px-4 py-3 md:px-6">
         <div role="group" aria-label="Filters" className="flex flex-wrap items-center gap-2 tabular-nums md:gap-3">
+          <span className="text-sm text-fg-2">Decisions</span>
           {painted ? (
             <Suspense fallback={<RangeTrigger start={query.start} end={query.end} />}>
               <DateRangePicker start={query.start} end={query.end} onChange={(start, end) => set({ start, end })} />
@@ -85,7 +87,9 @@ export function FilterBar({ query, onChange, onReset, isDefault, refreshing }: F
         </div>
         <div className="flex min-h-5 items-center gap-2 text-sm text-fg-2">
           <Info aria-hidden className="size-4 shrink-0 text-fg-3" />
-          <p className="min-w-0">{logicSummary(query)}</p>
+          <p className="min-w-0">
+            {logicSummary(query)} Delivery {fmtRange(query.start, query.end)}.
+          </p>
           <span
             role="status"
             className={cn("ml-auto flex shrink-0 items-center gap-1.5 text-xs text-fg-3 transition-opacity duration-150", !refreshing && "opacity-0")}

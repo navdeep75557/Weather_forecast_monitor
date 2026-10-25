@@ -35,7 +35,7 @@ export function TopBar({ health, theme, onToggleTheme, onHelp }: TopBarProps) {
           <Wind className="size-4" aria-hidden />
         </div>
         <h1 className="truncate text-base font-semibold tracking-tight">Wind Forecast Monitor</h1>
-        <span className="shrink-0 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-fg-2">Jan 2026</span>
+        <span className="shrink-0 rounded-full border border-border bg-surface-2 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-fg-2">Jan 2026 decisions</span>
         <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
           <Freshness health={health} />
           <Button variant="ghost" size="icon" aria-label="How to read this dashboard" onClick={onHelp}>

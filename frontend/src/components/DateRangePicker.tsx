@@ -1,13 +1,13 @@
-/** Range picker that can only express January 2026: presets plus a one-month calendar. */
+/** Picks January 2026 decision days (presets + one-month calendar); reports delivery dates (decision + 1 day). */
 import * as Popover from "@radix-ui/react-popover";
 import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { type KeyboardEvent, useRef, useState } from "react";
 import { cn } from "../lib/cn";
-import { MAX_DATE, MIN_DATE } from "../lib/query";
+import { decisionToDelivery, deliveryToDecision } from "../lib/query";
 import { RangeTrigger } from "./RangeTrigger";
 
 const PRESETS = [
-  { label: "Full month", start: MIN_DATE, end: MAX_DATE },
+  { label: "All of January", start: "2026-01-01", end: "2026-01-31" },
   { label: "1–7 Jan", start: "2026-01-01", end: "2026-01-07" },
   { label: "8–14 Jan", start: "2026-01-08", end: "2026-01-14" },
   { label: "15–21 Jan", start: "2026-01-15", end: "2026-01-21" },
@@ -34,8 +34,12 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
   const [hover, setHover] = useState<number | null>(null);
   const grid = useRef<HTMLDivElement>(null);
 
+  // Props are delivery dates; the calendar shows the decision day before each.
+  const decisionStart = deliveryToDecision(start);
+  const decisionEnd = deliveryToDecision(end);
   const [lo, hi] =
-    anchor == null ? [toDay(start), toDay(end)] : [Math.min(anchor, hover ?? anchor), Math.max(anchor, hover ?? anchor)];
+    anchor == null ? [toDay(decisionStart), toDay(decisionEnd)] : [Math.min(anchor, hover ?? anchor), Math.max(anchor, hover ?? anchor)];
+  const emit = (fromDecision: string, toDecision: string) => onChange(decisionToDelivery(fromDecision), decisionToDelivery(toDecision));
 
   const close = () => {
     setOpen(false);
@@ -48,7 +52,7 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
       setHover(d);
       return;
     }
-    onChange(toIso(Math.min(anchor, d)), toIso(Math.max(anchor, d)));
+    emit(toIso(Math.min(anchor, d)), toIso(Math.max(anchor, d)));
     close();
   };
   const onKey = (e: KeyboardEvent, d: number) => {
@@ -74,14 +78,14 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
         >
           <div className="flex flex-wrap gap-1 sm:w-32 sm:flex-col" role="group" aria-label="Presets">
             {PRESETS.map((p) => {
-              const active = p.start === start && p.end === end;
+              const active = p.start === decisionStart && p.end === decisionEnd;
               return (
                 <button
                   key={p.label}
                   type="button"
                   aria-pressed={active}
                   onClick={() => {
-                    onChange(p.start, p.end);
+                    emit(p.start, p.end);
                     close();
                   }}
                   className={cn(
@@ -101,7 +105,7 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
               <button type="button" disabled aria-label="Previous month (only January 2026 is available)" className="rounded-md p-1 text-fg-3 opacity-40">
                 <ChevronLeft aria-hidden className="size-4" />
               </button>
-              <span className="text-sm font-semibold">January 2026</span>
+              <span className="text-sm font-semibold">Decision days · January 2026</span>
               <button type="button" disabled aria-label="Next month (only January 2026 is available)" className="rounded-md p-1 text-fg-3 opacity-40">
                 <ChevronRight aria-hidden className="size-4" />
               </button>
@@ -113,7 +117,7 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
                 </span>
               ))}
             </div>
-            <div ref={grid} className="grid grid-cols-7 gap-y-1" role="group" aria-label="January 2026" onMouseLeave={() => anchor != null && setHover(anchor)}>
+            <div ref={grid} className="grid grid-cols-7 gap-y-1" role="group" aria-label="Decision days, January 2026" onMouseLeave={() => anchor != null && setHover(anchor)}>
               {Array.from({ length: LEADING_BLANKS }, (_, i) => (
                 <span key={`b${i}`} />
               ))}
@@ -142,7 +146,9 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
               })}
             </div>
             <p className="mt-3 text-xs text-fg-3" aria-live="polite">
-              {anchor == null ? "Click a start date, then an end date. Only January 2026 is available." : "Now click an end date."}
+              {anchor == null
+                ? "Pick the days the buying decision was made; delivery is the next day. Click a start date, then an end date."
+                : "Now click an end date."}
             </p>
           </div>
         </Popover.Content>

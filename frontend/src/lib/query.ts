@@ -2,8 +2,14 @@
 import { useEffect, useState } from "react";
 import type { Query } from "../types";
 
-export const MIN_DATE = "2026-01-01";
-export const MAX_DATE = "2026-01-31";
+// Scope: purchase decisions made in January 2026. A decision on day D-1 buys for delivery day D, so
+// queries (and the API) use delivery dates 2 Jan - 1 Feb; the UI presents the decision days.
+export const MIN_DATE = "2026-01-02";
+export const MAX_DATE = "2026-02-01";
+
+const shiftDay = (iso: string, days: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+export const deliveryToDecision = (iso: string) => shiftDay(iso, -1);
+export const decisionToDelivery = (iso: string) => shiftDay(iso, 1);
 
 export const DEFAULT_QUERY: Query = {
   start: MIN_DATE,
@@ -17,13 +23,14 @@ export const DEFAULT_QUERY: Query = {
 const pad = (n: number) => String(n).padStart(2, "0");
 export const cutoffLabel = (q: Pick<Query, "cutoffHour" | "cutoffMinute">) => `${pad(q.cutoffHour)}:${pad(q.cutoffMinute)}`;
 
-const isJanDate = (s: string | null): s is string => !!s && /^2026-01-(0[1-9]|[12]\d|3[01])$/.test(s);
+const isScopeDate = (s: string | null): s is string =>
+  !!s && /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s)) && s >= MIN_DATE && s <= MAX_DATE;
 
 /** Parse a query string, falling back to defaults for anything missing or out of scope. */
 export function parseQuery(search: string): Query {
   const p = new URLSearchParams(search);
-  let start = isJanDate(p.get("start")) ? p.get("start")! : DEFAULT_QUERY.start;
-  let end = isJanDate(p.get("end")) ? p.get("end")! : DEFAULT_QUERY.end;
+  let start = isScopeDate(p.get("start")) ? p.get("start")! : DEFAULT_QUERY.start;
+  let end = isScopeDate(p.get("end")) ? p.get("end")! : DEFAULT_QUERY.end;
   if (start > end) [start, end] = [end, start];
   const mode = p.get("mode") === "horizon" ? "horizon" : "cutoff";
   const cut = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(p.get("cutoff") ?? "");
@@ -58,7 +65,7 @@ export function useUrlQuery(): [Query, (q: Query) => void] {
 /** One-line description of the active forecast-selection rule. */
 export function logicSummary(q: Query): string {
   if (q.mode === "cutoff") {
-    return `Using the latest forecast published by ${cutoffLabel(q)} UK time on the day before delivery.`;
+    return `Using the latest forecast published by ${cutoffLabel(q)} UK time on the decision day, for delivery the next day.`;
   }
   return q.horizonHours === 0
     ? "Using the latest forecast published before each delivery hour."

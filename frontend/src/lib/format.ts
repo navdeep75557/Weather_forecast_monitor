@@ -39,10 +39,15 @@ export const fmtDateLong = (iso: string) =>
     new Date(`${iso}T00:00:00Z`),
   );
 
-/** "1–7 Jan 2026" style label for a date range within one month. */
+const dayMonth = new Intl.DateTimeFormat("en-GB", { timeZone: "UTC", day: "numeric", month: "short" });
+
+/** "1–7 Jan 2026", "2 Jan – 1 Feb 2026" or "9 Jan 2026" for a range of YYYY-MM-DD dates in 2026. */
 export function fmtRange(start: string, end: string): string {
-  const d = (iso: string) => Number(iso.slice(8, 10));
-  return start === end ? `${d(start)} Jan 2026` : `${d(start)}–${d(end)} Jan 2026`;
+  const s = new Date(`${start}T00:00:00Z`);
+  const e = new Date(`${end}T00:00:00Z`);
+  if (start === end) return `${dayMonth.format(s)} 2026`;
+  if (start.slice(0, 7) === end.slice(0, 7)) return `${s.getUTCDate()}–${dayMonth.format(e)} 2026`;
+  return `${dayMonth.format(s)} – ${dayMonth.format(e)} 2026`;
 }
 
 /** "3 min ago" style relative time. */

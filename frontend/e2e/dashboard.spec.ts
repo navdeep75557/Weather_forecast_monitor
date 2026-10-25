@@ -55,7 +55,7 @@ test("loads without console errors and renders all charts with data", async ({ p
 test("KPI cards match the API for the default selection", async ({ page }) => {
   await page.goto("/");
   await ready(page);
-  await expectKpisMatchApi(page, "start=2026-01-01&end=2026-01-31&mode=cutoff&cutoff_hour=9&cutoff_minute=50");
+  await expectKpisMatchApi(page, "start=2026-01-02&end=2026-02-01&mode=cutoff&cutoff_hour=9&cutoff_minute=50");
 });
 
 test("changing dates, cutoff and horizon updates values and the URL", async ({ page }) => {
@@ -63,15 +63,15 @@ test("changing dates, cutoff and horizon updates values and the URL", async ({ p
   await page.goto("/");
   await ready(page);
 
-  await page.getByRole("button", { name: /Delivery dates/ }).click();
+  await page.getByRole("button", { name: /Decision days/ }).click();
   await page.getByRole("button", { name: "8–14 Jan" }).click();
-  await expect(page).toHaveURL(/start=2026-01-08&end=2026-01-14/);
-  await expectKpisMatchApi(page, "start=2026-01-08&end=2026-01-14&cutoff_hour=9&cutoff_minute=50");
+  await expect(page).toHaveURL(/start=2026-01-09&end=2026-01-15/);
+  await expectKpisMatchApi(page, "start=2026-01-09&end=2026-01-15&cutoff_hour=9&cutoff_minute=50");
 
   await page.getByLabel(/Decision cutoff time/).fill("12:00");
   await expect(page.getByText("published by 12:00 UK time")).toBeVisible();
   await expect(page).toHaveURL(/cutoff=12%3A00/);
-  await expectKpisMatchApi(page, "start=2026-01-08&end=2026-01-14&cutoff_hour=12&cutoff_minute=0");
+  await expectKpisMatchApi(page, "start=2026-01-09&end=2026-01-15&cutoff_hour=12&cutoff_minute=0");
 
   await page.getByRole("radio", { name: "Fixed horizon" }).click();
   const thumb = page.getByRole("slider", { name: "Forecast horizon in hours" });
@@ -81,31 +81,32 @@ test("changing dates, cutoff and horizon updates values and the URL", async ({ p
   await expect(thumb).toHaveAttribute("aria-valuenow", "6");
   await expect(page).toHaveURL(/mode=horizon&h=6/);
   await expect(page.getByText("at least 6 hours before")).toBeVisible();
-  await expectKpisMatchApi(page, "start=2026-01-08&end=2026-01-14&mode=horizon&horizon_hours=6");
+  await expectKpisMatchApi(page, "start=2026-01-09&end=2026-01-15&mode=horizon&horizon_hours=6");
 });
 
-test("date picker only offers January 2026 and URLs outside it are clamped", async ({ page }) => {
+test("date picker offers January 2026 decision days only and URLs outside scope are clamped", async ({ page }) => {
   await page.goto("/");
   await ready(page);
-  await page.getByRole("button", { name: /Delivery dates/ }).click();
+  await page.getByRole("button", { name: /Decision days/ }).click();
   await expect(page.getByRole("button", { name: /January 2026$/ })).toHaveCount(31);
   await expect(page.getByRole("button", { name: /Previous month/ })).toBeDisabled();
   await expect(page.getByRole("button", { name: /Next month/ })).toBeDisabled();
   await page.getByRole("button", { name: "Saturday 10 January 2026" }).click();
   await page.getByRole("button", { name: "Monday 5 January 2026" }).click(); // end before start: swapped
-  await expect(page).toHaveURL(/start=2026-01-05&end=2026-01-10/);
-  await expect(page.getByRole("button", { name: /Delivery dates/ })).toHaveText("5–10 Jan 2026");
+  // Decisions 5-10 Jan -> delivery 6-11 Jan in the URL/API.
+  await expect(page).toHaveURL(/start=2026-01-06&end=2026-01-11/);
+  await expect(page.getByRole("button", { name: /Decision days/ })).toHaveText("5–10 Jan 2026");
 
   await page.goto("/?start=2025-12-01&end=2026-02-15");
   await ready(page);
-  await expect(page.getByRole("button", { name: /Delivery dates/ })).toHaveText("1–31 Jan 2026");
+  await expect(page.getByRole("button", { name: /Decision days/ })).toHaveText("1–31 Jan 2026");
   await expect(page.getByRole("alert")).toHaveCount(0);
 });
 
 test("shared links restore the filters", async ({ page }) => {
   await page.goto("/?start=2026-01-15&end=2026-01-21&mode=horizon&h=12");
   await ready(page);
-  await expect(page.getByRole("button", { name: /Delivery dates/ })).toHaveText("15–21 Jan 2026");
+  await expect(page.getByRole("button", { name: /Decision days/ })).toHaveText("14–20 Jan 2026"); // decision days for delivery 15-21 Jan
   await expect(page.getByRole("radio", { name: "Fixed horizon" })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByText("12 h", { exact: true })).toBeVisible();
   await expectKpisMatchApi(page, "start=2026-01-15&end=2026-01-21&mode=horizon&horizon_hours=12");
@@ -116,16 +117,16 @@ test("daily table renders, sorts and exports CSV", async ({ page }) => {
   await ready(page);
   const rows = page.locator("table tbody tr");
   await expect(rows).toHaveCount(31);
-  await expect(rows.first().locator("th")).toHaveText("Thu 01 Jan");
+  await expect(rows.first().locator("th")).toHaveText("Fri 02 Jan");
 
   await page.getByRole("button", { name: "MAE (MW)" }).click(); // largest first
   await expect(rows.first().locator("th")).toHaveText("Wed 28 Jan");
   await expect(page.locator("th[aria-sort=descending]")).toHaveCount(1);
 
   const [download] = await Promise.all([page.waitForEvent("download"), page.getByRole("button", { name: "Export CSV" }).click()]);
-  expect(download.suggestedFilename()).toBe("daily-metrics-2026-01-01_2026-01-31_cutoff-0950.csv");
+  expect(download.suggestedFilename()).toBe("daily-metrics-2026-01-02_2026-02-01_cutoff-0950.csv");
   const lines = readFileSync(await download.path(), "utf8").trim().split("\n");
-  expect(lines[0]).toBe("date,hours,mae_mw,rmse_mw,bias_mw,mape_pct,p90_abs_error_mw,max_abs_error_mw,mean_actual_mw,mean_forecast_mw");
+  expect(lines[0]).toBe("delivery_date,hours,mae_mw,rmse_mw,bias_mw,mape_pct,p90_abs_error_mw,max_abs_error_mw,mean_actual_mw,mean_forecast_mw");
   expect(lines).toHaveLength(32);
 });
 
