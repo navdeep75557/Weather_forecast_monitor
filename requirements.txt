@@ -1,9 +1,0 @@
-# Runtime deps for the Vercel Python function (api/index.py). Keep in sync with backend/requirements.txt
-# (uvicorn omitted: Vercel serves the ASGI app itself).
-fastapi==0.162.0
-pandas==3.1.0
-numpy==2.4.6
-httpx==0.28.1
-pydantic==2.14.1
-pydantic-settings==2.16.1
-tzdata==2026.5
