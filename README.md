@@ -17,6 +17,8 @@ Day-ahead power is bought on D-1 for delivery on day D. Wind output is the bigge
 1. **What did the wind forecast say when we had to decide?** (not a later, better forecast we could not have used)
 2. **How much can we trust it?** Typical error, bias, worst-case misses, and how error grows with lead time.
 
+The dashboard has a sticky filter bar (January-only date range, decision cutoff or fixed horizon, with a one-line summary of the active rule), five KPI cards with plain-English tooltips, an actual-vs-forecast hero chart with a shaded over/under band and brush zoom, error-over-time and error-by-lead-time charts, key insights, and a sortable, heat-shaded daily table with CSV export. Filters live in the URL, so views can be shared. Light and dark themes are available, and the layout works down to 375 px.
+
 ## 2. Decision-time logic
 
 **Data (Elexon BMRS, no other sources)**
@@ -59,32 +61,38 @@ Metrics are computed overall, per day (London date) and per lead-time bucket. Th
 
 ```
 .
-├── backend/                  FastAPI service (Python 3.11)
+├── api/index.py              Vercel Python entrypoint (serves backend/app for /api/*)
+├── backend/                  FastAPI service (Python 3.11+)
 │   ├── app/
-│   │   ├── main.py           Routes, validation, CORS, error handling
+│   │   ├── main.py           Routes, validation, CORS, gzip, Cache-Control, error handling
 │   │   ├── config.py         Settings (env vars) and fixed Jan-2026 scope
 │   │   ├── elexon.py         BMRS client: weekly chunking, retry with backoff
-│   │   ├── data_store.py     In-memory + gzipped-JSON disk cache
+│   │   ├── data_store.py     In-memory + gzipped-JSON disk cache (lazy-loaded on serverless)
+│   │   ├── cache.py          LRU of serialised responses (data is immutable once loaded)
 │   │   ├── forecasting.py    Cutoff / horizon selection, joins (DST-safe)
 │   │   ├── metrics.py        MAE, RMSE, bias, MAPE, P90, daily, by-horizon
 │   │   ├── insights.py       Plain-English takeaways
 │   │   ├── models.py         Pydantic response models
 │   │   └── refresh.py        CLI: re-fetch data from Elexon
 │   ├── data/                 Committed Jan-2026 snapshot (≈110 KB) for instant startup
-│   ├── tests/                pytest: selection, metrics, API, client retries
+│   ├── tests/                pytest: selection (incl. DST), metrics, API, edge cases, client retries
+│   ├── qa/verify_elexon.py   Independent check of a running API against raw Elexon data
 │   ├── Dockerfile, Procfile, requirements*.txt, .env.example
-├── frontend/                 React + Vite + TypeScript + Recharts
+├── frontend/                 React 19 + Vite + TypeScript + Tailwind + Radix + Recharts
 │   ├── src/
-│   │   ├── App.tsx           Page layout and state
+│   │   ├── App.tsx           Page composition and state
 │   │   ├── api.ts, types.ts  Typed API client
-│   │   ├── useDashboard.ts   Fetching (abortable, keeps data while refetching)
-│   │   ├── components/       Controls, MetricCards, ForecastChart, ErrorChart,
-│   │   │                     HorizonChart, Insights, DailyTable (CSV export)
-│   │   └── lib/              Formatting, CSV, axis helpers
-│   ├── Dockerfile, nginx.conf.template, vercel.json, .env.example
+│   │   ├── useDashboard.ts   Fetching (abortable, debounced, keeps data while refetching)
+│   │   ├── components/       TopBar, FilterBar, DateRangePicker, KpiRow, InsightsPanel,
+│   │   │                     DailyTable, Guide, States; charts/ (lazy); ui/ (Button, Card, ...)
+│   │   ├── lib/              Formatting, URL query state, theme prefs, CSV, axis helpers
+│   │   └── index.css         Design tokens (light/dark) for Tailwind
+│   ├── e2e/                  Playwright end-to-end tests
+│   ├── Dockerfile, nginx.conf.template, playwright.config.ts, .env.example
 ├── docs/                     Analysis summary, pitch and walkthrough scripts, screenshot
 ├── docker-compose.yml        Runs backend + frontend together
-├── render.yaml               Render blueprint for the API
+├── vercel.json               Single Vercel project: static frontend + Python API
+├── render.yaml               Alternative: Render blueprint for the API
 └── .env.example              All environment variables in one place
 ```
 
@@ -127,8 +135,8 @@ cd backend
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
+cp .env.example .env               # optional
 uvicorn app.main:app --reload --port 8000
-pytest                             # 35 tests
 python -m app.refresh              # optional: re-fetch Jan-2026 data from Elexon
 ```
 
@@ -137,34 +145,47 @@ Frontend (Node 20.19+ or 22.12+):
 ```bash
 cd frontend
 npm install
+cp .env.example .env               # optional
 npm run dev                        # http://localhost:5173 (proxies /api to :8000)
 npm run build                      # type-check + production build
 ```
 
-## 7. Deploy (Vercel frontend + Render backend)
+### Tests
 
-1. **Push to GitHub.**
-   ```bash
-   git remote add origin https://github.com/<you>/wind-forecast-monitor.git
-   git push -u origin main
-   ```
-2. **Backend on Render.** Dashboard → **New → Blueprint** → pick the repo (uses `render.yaml`). Or **New → Web Service** with:
-   - Root directory `backend`, runtime **Python 3**
-   - Build `pip install -r requirements.txt`
-   - Start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-   - Health check path `/api/health`
-   - Env vars: `PYTHON_VERSION=3.11.9`, `ALLOWED_ORIGINS=https://<your-app>.vercel.app` (fill in after step 3), optionally `ALLOWED_ORIGIN_REGEX=https://<your-app>-.*\.vercel\.app` for preview deploys.
+```bash
+# Backend unit + API tests (47)
+cd backend && pytest -v
 
-   Check that `https://<service>.onrender.com/api/health` returns `"status":"ok"`. (You can also choose the **Docker** runtime with `backend/Dockerfile`.)
-3. **Frontend on Vercel.** **Add New → Project** → import the repo, then:
-   - Root directory `frontend` (framework preset Vite, build `npm run build`, output `dist`)
-   - Env var `VITE_API_URL=https://<service>.onrender.com`
+# Independent end-to-end check of a running API against raw Elexon data
+# (re-implements selection and metrics without importing the app)
+python qa/verify_elexon.py http://localhost:8000
 
-   Or use the CLI: `cd frontend && vercel --prod` (set `VITE_API_URL` with `vercel env add VITE_API_URL production` first).
-4. Set `ALLOWED_ORIGINS` on Render to the final Vercel URL and redeploy the backend.
-5. Replace the **Live app** placeholder at the top of this README.
+# Frontend type-check and build
+cd frontend && npm run typecheck && npm run build
 
-**Heroku alternative for the backend:** `heroku create`, `heroku config:set ALLOWED_ORIGINS=https://<your-app>.vercel.app`, `git subtree push --prefix backend heroku main` (uses `backend/Procfile` and `.python-version`).
+# Playwright e2e (13): builds, starts `vite preview` + API if not running, tests the production bundle
+npx playwright install chromium    # once; or set PW_CHANNEL=msedge / chrome to use an installed browser
+E2E_PYTHON=../backend/.venv/bin/python npm run e2e      # Windows: ..\backend\.venv\Scripts\python
+E2E_BASE_URL=https://<deployment> npm run e2e           # run the same tests against any deployment
+```
+
+Lighthouse on the local production build scores Performance 95-98 on mobile and 92-97 on desktop, with Accessibility 100 and Best Practices 100.
+
+## 7. Deploy (Vercel, frontend and API in one project)
+
+> Not deployed yet. These steps are prepared and tested locally only.
+
+`vercel.json` builds the frontend from `frontend/` and serves the FastAPI app as one Python function (`api/index.py`) for every `/api/*` route. Site and API share an origin, so you don't need CORS settings or `VITE_API_URL`. API responses carry `Cache-Control: s-maxage=86400`, so Vercel's CDN serves repeat queries without invoking Python.
+
+1. Push the repo to GitHub (`git remote add origin …` and `git push -u origin main`).
+2. In Vercel: **Add New → Project** → import the repo. Keep the **root directory as the repo root**; `vercel.json` supplies the install, build and output settings. No environment variables are required.
+   Or from the CLI, in the repo root: `vercel` (preview), then `vercel --prod`.
+3. Check `https://<project>.vercel.app/api/health` returns `"status":"ok"` and the dashboard loads. Then run `E2E_BASE_URL=https://<project>.vercel.app npm run e2e` from `frontend/`.
+4. Replace the **Live app** placeholder at the top of this README.
+
+Expect a Python cold start of about 2-3 s (pandas import plus a 110 ms data load); after that, cached queries take about 10 ms.
+
+**Alternative (separate API host):** deploy `backend/` to Render (`render.yaml`, or a web service with root `backend`, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/api/health`, `PYTHON_VERSION=3.11.9`) or Heroku (`git subtree push --prefix backend heroku main`). Then deploy the frontend with root `frontend`, set `VITE_API_URL=https://<api-host>`, and set `ALLOWED_ORIGINS` (plus optional `ALLOWED_ORIGIN_REGEX` for preview URLs) on the API.
 
 ### Environment variables
 
@@ -177,8 +198,9 @@ npm run build                      # type-check + production build
 | `REQUEST_TIMEOUT_S`, `MAX_RETRIES` | backend | `30`, `4` | Elexon client behaviour (exponential backoff on 429/5xx/network errors) |
 | `DEFAULT_CUTOFF_HOUR`, `DEFAULT_CUTOFF_MINUTE` | backend | `9`, `50` | Default D-1 cutoff when the query omits it |
 | `MAPE_MIN_ACTUAL_MW` | backend | `1` | MAPE zero-guard threshold |
-| `PYTHON_VERSION` | Render | `3.11.9` | Python runtime on Render |
-| `VITE_API_URL` | frontend (build time) | empty | Backend base URL; empty = same-origin `/api` |
+| `PYTHON_VERSION` | Render only | `3.11.9` | Python runtime on Render (Vercel defaults to 3.12) |
+| `VITE_API_URL` | frontend (build time) | empty | Backend base URL; leave empty on Vercel/Docker (same-origin `/api`) |
+| `VITE_PROXY_TARGET` | frontend dev/preview | `http://localhost:8000` | Where the Vite dev/preview server proxies `/api` |
 | `BACKEND_URL` | frontend Docker | `http://backend:8000` | nginx `/api` proxy target |
 
 ## 8. Assumptions and limitations
@@ -201,8 +223,8 @@ Limitations:
 - **Definitions may differ between datasets.** FUELHH is metered output, including the effect of any curtailment, while WINDFOR is a forecast of generation. Part of the strong positive bias may reflect curtailment or differences in which wind farms each dataset covers, not only forecasting skill. This cannot be verified with Elexon wind data alone (per scope).
 - **MAPE is inflated on calm days** (e.g. 66% on 8 Jan, when mean output was 4.5 GW); prefer MAE/P90 for sizing.
 - **Static snapshot.** January 2026 is final, so the data is committed for speed and resilience; `python -m app.refresh` or `REFRESH_ON_STARTUP=true` re-fetches it.
-- **Free-tier hosting** (Render) sleeps when idle; the first request can take 30-60 s, and the UI shows a "waking up" message.
-- Docker images were written to standard patterns but **not built in the authoring environment** (Docker was unavailable there); the non-Docker path was run end to end.
+- **Cold starts.** Serverless or free-tier hosting adds 2-60 s to the first request after idle; the UI shows a "waking up" message after 4 s.
+- **Not yet verified on real infrastructure.** Docker images and the Vercel config follow standard patterns and were checked statically and by simulation (Docker wasn't available in the authoring environment, and nothing has been deployed yet). Run the e2e suite against the first real deployment.
 
 ## 9. AI assistance
 
