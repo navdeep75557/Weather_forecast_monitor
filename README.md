@@ -119,7 +119,7 @@ curl "http://localhost:8000/api/forecasts/latest?start=2026-01-10&end=2026-01-10
 ### With Docker
 
 ```bash
-docker compose up --build
+docker compose up --build          # or: docker-compose up --build (Compose v1)
 # Frontend: http://localhost:8080   API: http://localhost:8000/docs
 ```
 
