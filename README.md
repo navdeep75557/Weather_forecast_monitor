@@ -125,6 +125,8 @@ docker compose up --build
 
 nginx in the frontend container proxies `/api` to the backend service, so there is no CORS setup.
 
+On every push and pull request, the GitHub Actions workflow [`.github/workflows/docker.yml`](.github/workflows/docker.yml) builds both images, starts the stack, smoke-tests the nginx proxy and CORS, and runs the Playwright suite against `http://localhost:8080`.
+
 ### Without Docker
 
 Backend (Python 3.11+):
@@ -172,11 +174,11 @@ Lighthouse on the production build scored Performance 95-98 (mobile) and 92-97 (
 
 ## 7. Deploy (Vercel, frontend and API in one project)
 
-Live at **https://wind-forecast-monitor-eosin.vercel.app**. The project is `wind-forecast-monitor`, deployed from the CLI.
+Live at **https://wind-forecast-monitor-eosin.vercel.app**. The Vercel project `wind-forecast-monitor` is connected to this GitHub repository: every push to `main` deploys to production, and pull requests get preview deployments.
 
 `vercel.json` declares two [Vercel services](https://vercel.com/docs): `frontend` (Vite, root `frontend/`, mounted at `/`) and `backend` (FastAPI, root `backend/`, entrypoint `app/main.py`, mounted at `/api`). Site and API share an origin, so you don't need CORS settings or `VITE_API_URL`. API responses carry `Cache-Control: s-maxage=86400`, so Vercel's CDN serves repeat queries without invoking Python. Hashed assets are cached as immutable.
 
-To redeploy, run this from the repo root:
+To deploy manually (for example from a branch), run this from the repo root:
 
 ```bash
 vercel login                       # once
@@ -186,7 +188,7 @@ curl https://<project>.vercel.app/api/health  # expect "status":"ok"
 cd frontend && E2E_BASE_URL=https://<project>.vercel.app npm run e2e
 ```
 
-No environment variables are required. To deploy automatically on push instead, connect the GitHub repository under the project's **Settings → Git**; this needs the Vercel GitHub app on the account. The Python cold start is about 2-3 s (pandas import plus a 110 ms data load); after that, cached queries take about 10 ms.
+No environment variables are required. The Python cold start is about 2-3 s (pandas import plus a 110 ms data load); after that, cached queries take about 10 ms.
 
 **Alternative (separate API host):** deploy `backend/` to Render (`render.yaml`, or a web service with root `backend`, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/api/health`, `PYTHON_VERSION=3.11.9`) or Heroku (`git subtree push --prefix backend heroku main`). Then deploy the frontend with root `frontend`, set `VITE_API_URL=https://<api-host>`, and set `ALLOWED_ORIGINS` (plus optional `ALLOWED_ORIGIN_REGEX` for preview URLs) on the API.
 
@@ -227,7 +229,7 @@ Limitations:
 - **MAPE is inflated on calm days** (e.g. 66% on 8 Jan, when mean output was 4.5 GW); prefer MAE/P90 for sizing.
 - **Static snapshot.** January 2026 is final, so the data is committed for speed and resilience; `python -m app.refresh` or `REFRESH_ON_STARTUP=true` re-fetches it.
 - **Cold starts.** Serverless or free-tier hosting adds 2-60 s to the first request after idle; the UI shows a "waking up" message after 4 s.
-- **Docker not built.** The Docker images follow standard patterns and were checked statically, but Docker wasn't available in the authoring environment. The Vercel deployment is verified: e2e suite and Elexon verification pass against the live URL.
+- **Docker is verified in CI only.** Docker wasn't available in the authoring environment. The GitHub Actions workflow builds and runs the stack and passes the e2e suite against it. The Vercel deployment is verified too: the e2e suite and Elexon verification pass against the live URL.
 
 ## 9. AI assistance
 
