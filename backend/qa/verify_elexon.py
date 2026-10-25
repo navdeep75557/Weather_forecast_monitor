@@ -21,6 +21,10 @@ BMRS = "https://data.elexon.co.uk/bmrs/api/v1"
 LONDON = ZoneInfo("Europe/London")
 UTC = timezone.utc
 TOL = 0.15  # API rounds MW metrics to 0.1
+# Scope: purchase decisions made in January 2026 (D-1) -> delivery days 2 Jan - 1 Feb 2026.
+FIRST_DELIVERY, LAST_DELIVERY = date(2026, 1, 2), date(2026, 2, 1)
+LO = pd.Timestamp(FIRST_DELIVERY, tz="UTC")  # GMT in Jan/Feb, so London dates == UTC dates
+HI = pd.Timestamp(LAST_DELIVERY + timedelta(days=1), tz="UTC")
 failures: list[str] = []
 
 
@@ -68,9 +72,9 @@ def compare(label: str, mine: dict, theirs: dict) -> None:
 # ---------------- raw data ----------------
 print(f"API: {API}\nFetching raw Elexon data ...")
 fuel = []
-d = date(2026, 1, 1)
-while d <= date(2026, 1, 31):
-    hi = min(d + timedelta(days=6), date(2026, 1, 31))
+d = FIRST_DELIVERY
+while d <= LAST_DELIVERY:
+    hi = min(d + timedelta(days=6), LAST_DELIVERY)
     fuel += bmrs("/datasets/FUELHH/stream", {"settlementDateFrom": d.isoformat(), "settlementDateTo": hi.isoformat()})
     d = hi + timedelta(days=1)
 fuel = pd.DataFrame(fuel)
@@ -79,16 +83,15 @@ wind["start_time"] = pd.to_datetime(wind["startTime"], utc=True)
 
 runs = []
 t = datetime(2025, 12, 28, tzinfo=UTC)
-while t < datetime(2026, 2, 1, tzinfo=UTC):
-    nxt = min(t + timedelta(days=7), datetime(2026, 2, 1, tzinfo=UTC))
+while t < HI.to_pydatetime():
+    nxt = min(t + timedelta(days=7), HI.to_pydatetime())
     runs += bmrs("/datasets/WINDFOR/stream", {"publishDateTimeFrom": t.strftime("%Y-%m-%dT%H:%M:%SZ"), "publishDateTimeTo": nxt.strftime("%Y-%m-%dT%H:%M:%SZ")})
     t = nxt
 fc = pd.DataFrame(runs)
 fc["start_time"] = pd.to_datetime(fc["startTime"], utc=True)
 fc["publish_time"] = pd.to_datetime(fc["publishTime"], utc=True)
 fc = fc.drop_duplicates(["publish_time", "start_time"])
-jan_lo, jan_hi = pd.Timestamp("2026-01-01", tz="UTC"), pd.Timestamp("2026-02-01", tz="UTC")
-fc = fc[(fc["start_time"] >= jan_lo) & (fc["start_time"] < jan_hi) & (fc["publish_time"] < pd.Timestamp("2026-02-01", tz="UTC"))]
+fc = fc[(fc["start_time"] >= LO) & (fc["start_time"] < HI) & (fc["publish_time"] < HI)]
 
 # ---------------- actuals ----------------
 print("\n== Actuals")
@@ -96,16 +99,16 @@ print(f"raw FUELHH rows (all fuels): {len(fuel)}, fuel types: {sorted(fuel['fuel
 dup = wind.duplicated("start_time").sum()
 check(dup == 0, "raw WIND has no duplicate startTime", f"{dup} duplicates")
 wind = wind.sort_values("publishTime").drop_duplicates("start_time", keep="last").set_index("start_time").sort_index()
-expected = pd.date_range("2026-01-01", "2026-01-31 23:30", freq="30min", tz="UTC")
+expected = pd.date_range(LO, HI - pd.Timedelta("30min"), freq="30min")
 missing = expected.difference(wind.index)
-check(len(missing) == 0, "raw WIND covers every half-hour of Jan 2026", f"{len(wind)} rows, gaps: {list(missing[:5])}")
+check(len(missing) == 0, "raw WIND covers every delivery half-hour (2 Jan - 1 Feb)", f"{len(wind)} rows, gaps: {list(missing[:5])}")
 check(bool((wind.index.to_series().diff().dropna() == pd.Timedelta("30min")).all()), "raw WIND is strictly 30-min spaced")
 
 api_act = pd.DataFrame(api("/api/actuals"))
 api_act["start_time"] = pd.to_datetime(api_act["start_time"], utc=True)
 api_act = api_act.set_index("start_time")
 check(len(api_act) == 1488 and api_act.index.is_unique, "API actuals: 1488 unique half-hours", f"{len(api_act)} rows")
-check(api_act.index.min() == jan_lo and api_act.index.max() == pd.Timestamp("2026-01-31 23:30", tz="UTC"), "API actuals limited to Jan 2026")
+check(api_act.index.min() == LO and api_act.index.max() == HI - pd.Timedelta("30min"), "API actuals limited to delivery 2 Jan - 1 Feb")
 same = api_act["actual_mw"].reindex(wind.index).sub(wind["generation"]).abs().max()
 check(same == 0, "API actuals equal raw FUELHH WIND values", f"max abs diff {same}")
 other = fuel[fuel["fuelType"] != "WIND"]
@@ -148,6 +151,11 @@ for hh, mm in [(9, 50), (6, 0), (12, 0)]:
     m = api("/api/metrics", cutoff_hour=hh, cutoff_minute=mm, include_points="false")["overall"]
     check(m["n"] == len(j), f"cutoff {hh:02d}:{mm:02d} n", f"{len(j)} vs API {m['n']}")
     compare(f"cutoff {hh:02d}:{mm:02d} overall metrics", stats(j["err"], j["actual"]), m)
+
+sel = select(targets_all.map(lambda t: cutoff_utc(pd.Timestamp(t), 9, 50)))
+first_pub, last_pub = sel["publish_time"].min(), sel["publish_time"].max()
+check(first_pub >= pd.Timestamp("2026-01-01", tz="UTC") and last_pub <= pd.Timestamp("2026-01-31 09:50", tz="UTC"),
+      "decision-time forecasts were all published in January 2026 (by 09:50 on 31 Jan)", f"{first_pub} .. {last_pub}")
 
 wk = targets_all[(targets_all >= pd.Timestamp("2026-01-08", tz="UTC")) & (targets_all < pd.Timestamp("2026-01-15", tz="UTC"))]
 j = joined(select(wk.map(lambda t: cutoff_utc(pd.Timestamp(t), 9, 50))))

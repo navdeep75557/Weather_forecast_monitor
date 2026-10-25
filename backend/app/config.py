@@ -9,13 +9,16 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 LONDON = ZoneInfo("Europe/London")
 
-# Analysis scope: target times in January 2026 (London local dates, inclusive).
-SCOPE_START = date(2026, 1, 1)
-SCOPE_END = date(2026, 1, 31)
+# Analysis scope: purchase decisions made in January 2026. A decision on day D-1 buys for delivery day D,
+# so the target (delivery) dates are 2 Jan - 1 Feb 2026 (London local dates, inclusive).
+SCOPE_START = date(2026, 1, 2)
+SCOPE_END = date(2026, 2, 1)
 
-# Forecast publish window to fetch: early enough to cover 48h+ horizons for 1 Jan targets.
+# Forecast publish window to fetch: early enough for 48h+ horizons on the first delivery day, and through the
+# last delivery day so fixed-horizon and lead-time views cover every delivery hour (D-1 cutoff mode only ever
+# uses runs published by 09:50 on 31 Jan).
 FORECAST_PUBLISH_FROM = datetime(2025, 12, 28, tzinfo=timezone.utc)
-FORECAST_PUBLISH_TO = datetime(2026, 2, 1, tzinfo=timezone.utc)
+FORECAST_PUBLISH_TO = datetime(2026, 2, 2, tzinfo=timezone.utc)
 
 
 class Settings(BaseSettings):

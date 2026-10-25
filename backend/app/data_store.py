@@ -34,7 +34,7 @@ def _read(path: Path, columns: list[str]) -> pd.DataFrame:
 
 
 class DataStore:
-    """In-memory holder of January 2026 wind actuals and all forecast runs targeting it."""
+    """In-memory holder of wind actuals and all forecast runs for the delivery days in scope."""
 
     def __init__(self, settings: Settings) -> None:
         self.settings = settings

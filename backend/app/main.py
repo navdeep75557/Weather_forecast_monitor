@@ -106,10 +106,10 @@ class DateRange(BaseModel):
 
 
 def date_range(
-    start: Annotated[date, Query(description="First target date (London), YYYY-MM-DD")] = SCOPE_START,
-    end: Annotated[date, Query(description="Last target date (London), inclusive")] = SCOPE_END,
+    start: Annotated[date, Query(description="First delivery date (London), YYYY-MM-DD")] = SCOPE_START,
+    end: Annotated[date, Query(description="Last delivery date (London), inclusive")] = SCOPE_END,
 ) -> DateRange:
-    """Validated target date range, limited to January 2026."""
+    """Validated delivery date range: 2 Jan - 1 Feb 2026, i.e. decisions made (D-1) in January 2026."""
     if not (SCOPE_START <= start <= end <= SCOPE_END):
         raise HTTPException(422, detail=f"start/end must satisfy {SCOPE_START} <= start <= end <= {SCOPE_END}")
     return DateRange(start=start, end=end)

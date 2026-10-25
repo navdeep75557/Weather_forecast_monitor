@@ -1,4 +1,4 @@
-"""CLI: re-fetch the January 2026 data from Elexon and rewrite the disk cache (python -m app.refresh)."""
+"""CLI: re-fetch the in-scope data from Elexon and rewrite the disk cache (python -m app.refresh)."""
 
 from .config import get_settings
 from .data_store import DataStore

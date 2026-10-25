@@ -64,8 +64,8 @@ def test_error_by_horizon(client):
 @pytest.mark.parametrize(
     "params",
     [
-        {"start": "2025-12-31"},
-        {"end": "2026-02-01"},
+        {"start": "2026-01-01"},  # delivery 1 Jan = decision on 31 Dec: out of scope
+        {"end": "2026-02-02"},
         {"start": "2026-01-20", "end": "2026-01-10"},
         {"mode": "horizon"},
         {"horizon_hours": 49},
@@ -111,7 +111,7 @@ def test_responses_are_cached_and_cacheable(client):
     assert first.content == second.content and len(store.cache) == 1
     assert "s-maxage" in first.headers["cache-control"]
     assert client.get("/api/health").headers["cache-control"] == "no-store"
-    assert client.get("/api/metrics", params={"start": "2026-02-01"}).headers["cache-control"] == "no-store"
+    assert client.get("/api/metrics", params={"start": "2026-02-02"}).headers["cache-control"] == "no-store"
 
 
 def test_large_responses_are_gzipped(client):
