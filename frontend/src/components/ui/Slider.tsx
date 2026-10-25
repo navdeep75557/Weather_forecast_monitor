@@ -13,7 +13,7 @@ interface SliderProps {
 }
 
 /** Single-thumb slider (Radix): arrow keys, Page Up/Down and Home/End work out of the box. */
-export function Slider({ value, min, max, step = 1, onChange, label, valueText, className }: SliderProps) {
+export default function Slider({ value, min, max, step = 1, onChange, label, valueText, className }: SliderProps) {
   return (
     <RadixSlider.Root
       value={[value]}

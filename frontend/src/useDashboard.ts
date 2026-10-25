@@ -1,6 +1,7 @@
 /** Data hooks: dashboard bundle for one query (keeps previous data while refetching) and API health. */
 import { useEffect, useState } from "react";
 import { api } from "./api";
+import { afterPaint } from "./lib/afterPaint";
 import type { ActualPoint, ErrorByHorizonResponse, HealthResponse, MetricsResponse, Query } from "./types";
 
 export interface Dashboard {
@@ -26,7 +27,9 @@ export function useDashboard(q: Query) {
     const ctl = new AbortController();
     setState((s) => ({ ...s, loading: true, error: undefined }));
     const slowTimer = setTimeout(() => setState((s) => ({ ...s, slow: true })), SLOW_MS);
-    Promise.all([api.actuals(q, ctl.signal), api.metrics(q, ctl.signal), api.errorByHorizon(q, ctl.signal)])
+    // Let the shell/skeleton paint first; requests then go out within a frame.
+    afterPaint()
+      .then(() => Promise.all([api.actuals(q, ctl.signal), api.metrics(q, ctl.signal), api.errorByHorizon(q, ctl.signal)]))
       .then(([actuals, metrics, horizon]) => setState({ data: { actuals, metrics, horizon }, loading: false, slow: false }))
       .catch((err: Error) => {
         if (!ctl.signal.aborted) setState((s) => ({ ...s, loading: false, slow: false, error: err.message }));
@@ -46,7 +49,9 @@ export function useHealth(trigger: unknown): HealthResponse | null {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   useEffect(() => {
     const ctl = new AbortController();
-    api.health(ctl.signal).then(setHealth, () => !ctl.signal.aborted && setHealth(null));
+    afterPaint()
+      .then(() => api.health(ctl.signal))
+      .then(setHealth, () => !ctl.signal.aborted && setHealth(null));
     return () => ctl.abort();
   }, [trigger]);
   return health;

@@ -1,11 +1,10 @@
 /** Range picker that can only express January 2026: presets plus a one-month calendar. */
 import * as Popover from "@radix-ui/react-popover";
-import { CalendarDays, Check, ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Check, ChevronLeft, ChevronRight } from "lucide-react";
 import { type KeyboardEvent, useRef, useState } from "react";
 import { cn } from "../lib/cn";
-import { fmtRange } from "../lib/format";
 import { MAX_DATE, MIN_DATE } from "../lib/query";
-import { Button } from "./ui/Button";
+import { RangeTrigger } from "./RangeTrigger";
 
 const PRESETS = [
   { label: "Full month", start: MIN_DATE, end: MAX_DATE },
@@ -29,7 +28,7 @@ interface Props {
   onChange: (start: string, end: string) => void;
 }
 
-export function DateRangePicker({ start, end, onChange }: Props) {
+export default function DateRangePicker({ start, end, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [anchor, setAnchor] = useState<number | null>(null);
   const [hover, setHover] = useState<number | null>(null);
@@ -64,13 +63,7 @@ export function DateRangePicker({ start, end, onChange }: Props) {
   return (
     <Popover.Root open={open} onOpenChange={(o) => (o ? setOpen(true) : close())}>
       <Popover.Trigger asChild>
-        <Button aria-label={`Delivery dates: ${fmtRange(start, end)}`} className="h-9 min-w-48 justify-between">
-          <span className="flex items-center gap-2">
-            <CalendarDays aria-hidden className="text-fg-3" />
-            {fmtRange(start, end)}
-          </span>
-          <ChevronDown aria-hidden className="text-fg-3" />
-        </Button>
+        <RangeTrigger start={start} end={end} />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content

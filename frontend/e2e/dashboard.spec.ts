@@ -42,6 +42,8 @@ test("loads without console errors and renders all charts with data", async ({ p
   const errors = trackErrors(page);
   await page.goto("/");
   await ready(page);
+  // Below-the-fold charts render when scrolled near the viewport.
+  await page.getByRole("heading", { name: "Day-by-day accuracy" }).scrollIntoViewIfNeeded();
   await expect(page.locator(".recharts-surface")).toHaveCount(3);
   await expect(page.locator(".recharts-line-curve")).toHaveCount(2); // actual + forecast
   await expect(page.locator(".recharts-bar-rectangle")).toHaveCount(8); // 8 lead-time buckets

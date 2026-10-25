@@ -1,5 +1,4 @@
 /** Wind Forecast Monitor dashboard: composes filters, KPIs, charts, insights and the daily table. */
-import { Provider as TooltipProvider } from "@radix-ui/react-tooltip";
 import { ZoomOut } from "lucide-react";
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { DailyTable } from "./components/DailyTable";
@@ -11,6 +10,8 @@ import { ChartSkeleton, DashboardSkeleton, EmptyState, ErrorState, InlineError }
 import { TopBar } from "./components/TopBar";
 import { Button } from "./components/ui/Button";
 import { Card, CardBody, CardHeader } from "./components/ui/Card";
+import { InView } from "./components/ui/InView";
+import { afterPaint } from "./lib/afterPaint";
 import { cn } from "./lib/cn";
 import { fmtDay, fmtMW, fmtRange } from "./lib/format";
 import { useGuide, useTheme } from "./lib/prefs";
@@ -18,7 +19,8 @@ import { DEFAULT_QUERY, cutoffLabel, serializeQuery, useUrlQuery } from "./lib/q
 import { mergeSeries } from "./lib/series";
 import { useDashboard, useDebounced, useHealth } from "./useDashboard";
 
-// Recharts is heavy: load chart code in its own chunk, started in parallel with the first data request.
+// Recharts is heavy: chart code lives in its own chunks. The hero chart's chunk starts loading in parallel
+// with the first data request; the below-the-fold charts are prefetched once the browser is idle.
 const loadForecastChart = () => import("./components/charts/ForecastChart");
 const loadErrorChart = () => import("./components/charts/ErrorChart");
 const loadHorizonChart = () => import("./components/charts/HorizonChart");
@@ -35,9 +37,17 @@ export default function App() {
   const [guideOpen, setGuideOpen] = useGuide();
 
   useEffect(() => {
-    void loadForecastChart();
-    void loadErrorChart();
-    void loadHorizonChart();
+    void afterPaint().then(loadForecastChart);
+    const prefetch = () => {
+      void loadErrorChart();
+      void loadHorizonChart();
+    };
+    if ("requestIdleCallback" in window) {
+      const id = window.requestIdleCallback(prefetch, { timeout: 4000 });
+      return () => window.cancelIdleCallback(id);
+    }
+    const id = setTimeout(prefetch, 2000);
+    return () => clearTimeout(id);
   }, []);
 
   const rows = useMemo(() => (data ? mergeSeries(data.actuals, data.metrics.points) : []), [data]);
@@ -71,7 +81,7 @@ export default function App() {
   const scope = p ? `${p.label} · ${fmtRange(p.start, p.end)}` : "";
 
   return (
-    <TooltipProvider delayDuration={150}>
+    <>
       <a
         href="#main"
         className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:rounded-lg focus:bg-surface focus:px-3 focus:py-2 focus:text-sm"
@@ -128,9 +138,11 @@ export default function App() {
                     Line chart of actual and forecast GB wind generation, {fmtRange(m.params.start, m.params.end)}. Mean actual{" "}
                     {fmtMW(m.overall.mean_actual)}, mean forecast {fmtMW(m.overall.mean_forecast)}. The table below lists the daily figures.
                   </figcaption>
-                  <Suspense fallback={<ChartSkeleton className="h-[328px] sm:h-[408px]" />}>
-                    <ForecastChart key={chartKey} rows={rows} range={idx} onRangeChange={setRange} forecastLabel={m.params.label} />
-                  </Suspense>
+                  <InView placeholder={<ChartSkeleton className="h-[328px] sm:h-[408px]" />}>
+                    <Suspense fallback={<ChartSkeleton className="h-[328px] sm:h-[408px]" />}>
+                      <ForecastChart key={chartKey} rows={rows} range={idx} onRangeChange={setRange} forecastLabel={m.params.label} />
+                    </Suspense>
+                  </InView>
                 </figure>
               </CardBody>
             </Card>
@@ -139,9 +151,11 @@ export default function App() {
               <Card aria-labelledby="error-title">
                 <CardHeader id="error-title" title="Forecast error over time" description="Forecast − actual, hourly. Above zero means the forecast was too high." />
                 <CardBody>
-                  <Suspense fallback={<ChartSkeleton className="h-[268px] sm:h-[308px]" />}>
-                    <ErrorChart points={m.points} window={timeWindow} />
-                  </Suspense>
+                  <InView placeholder={<ChartSkeleton className="h-[268px] sm:h-[308px]" />}>
+                    <Suspense fallback={<ChartSkeleton className="h-[268px] sm:h-[308px]" />}>
+                      <ErrorChart points={m.points} window={timeWindow} />
+                    </Suspense>
+                  </InView>
                 </CardBody>
               </Card>
               <Card aria-labelledby="horizon-title">
@@ -151,9 +165,11 @@ export default function App() {
                   description="MAE of every published forecast run, by hours between publication and delivery."
                 />
                 <CardBody>
-                  <Suspense fallback={<ChartSkeleton className="h-[268px] sm:h-[308px]" />}>
-                    <HorizonChart buckets={data.horizon.buckets} usedRange={usedRange} />
-                  </Suspense>
+                  <InView placeholder={<ChartSkeleton className="h-[268px] sm:h-[308px]" />}>
+                    <Suspense fallback={<ChartSkeleton className="h-[268px] sm:h-[308px]" />}>
+                      <HorizonChart buckets={data.horizon.buckets} usedRange={usedRange} />
+                    </Suspense>
+                  </InView>
                 </CardBody>
               </Card>
             </div>
@@ -168,6 +184,6 @@ export default function App() {
         Data: Elexon BMRS (FUELHH wind outturn, WINDFOR forecasts). Forecasts are hourly; metrics use hours where both exist. Error =
         forecast − actual. Times in UK local time.
       </footer>
-    </TooltipProvider>
+    </>
   );
 }

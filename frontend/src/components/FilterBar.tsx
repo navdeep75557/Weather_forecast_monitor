@@ -1,11 +1,16 @@
 import { Info, LoaderCircle, RotateCcw } from "lucide-react";
+import { Suspense, lazy } from "react";
+import { useAfterPaint } from "../lib/afterPaint";
 import { cn } from "../lib/cn";
 import { cutoffLabel, logicSummary } from "../lib/query";
 import type { Query } from "../types";
-import { DateRangePicker } from "./DateRangePicker";
+import { RangeTrigger } from "./RangeTrigger";
 import { Button } from "./ui/Button";
 import { Segmented } from "./ui/Segmented";
-import { Slider } from "./ui/Slider";
+
+// Radix popover/slider code loads in separate chunks; identical-looking static stand-ins render first.
+const DateRangePicker = lazy(() => import("./DateRangePicker"));
+const Slider = lazy(() => import("./ui/Slider"));
 
 interface FilterBarProps {
   query: Query;
@@ -17,6 +22,7 @@ interface FilterBarProps {
 
 /** Filters that scope everything below them; sticky on tablet/desktop. */
 export function FilterBar({ query, onChange, onReset, isDefault, refreshing }: FilterBarProps) {
+  const painted = useAfterPaint(); // load the picker's popover code after first paint
   const set = (patch: Partial<Query>) => onChange({ ...query, ...patch });
   const setCutoff = (v: string) => {
     const m = /^(\d{2}):(\d{2})/.exec(v);
@@ -27,7 +33,13 @@ export function FilterBar({ query, onChange, onReset, isDefault, refreshing }: F
     <div className="z-30 border-b border-border bg-bg/90 backdrop-blur transition-colors duration-150 md:sticky md:top-0">
       <div className="mx-auto flex max-w-[1440px] flex-col gap-2 px-4 py-3 md:px-6">
         <div role="group" aria-label="Filters" className="flex flex-wrap items-center gap-2 tabular-nums md:gap-3">
-          <DateRangePicker start={query.start} end={query.end} onChange={(start, end) => set({ start, end })} />
+          {painted ? (
+            <Suspense fallback={<RangeTrigger start={query.start} end={query.end} />}>
+              <DateRangePicker start={query.start} end={query.end} onChange={(start, end) => set({ start, end })} />
+            </Suspense>
+          ) : (
+            <RangeTrigger start={query.start} end={query.end} />
+          )}
           <Segmented
             label="Forecast selection mode"
             value={query.mode}
@@ -52,15 +64,17 @@ export function FilterBar({ query, onChange, onReset, isDefault, refreshing }: F
           ) : (
             <div className="flex h-9 items-center gap-3 text-sm text-fg-2">
               <span>Horizon</span>
-              <Slider
-                className="w-32 sm:w-40"
-                value={query.horizonHours}
-                min={0}
-                max={48}
-                onChange={(horizonHours) => set({ horizonHours })}
-                label="Forecast horizon in hours"
-                valueText={`${query.horizonHours} hours`}
-              />
+              <Suspense fallback={<div className="h-5 w-32 sm:w-40" />}>
+                <Slider
+                  className="w-32 sm:w-40"
+                  value={query.horizonHours}
+                  min={0}
+                  max={48}
+                  onChange={(horizonHours) => set({ horizonHours })}
+                  label="Forecast horizon in hours"
+                  valueText={`${query.horizonHours} hours`}
+                />
+              </Suspense>
               <span className="w-10 font-medium text-fg">{query.horizonHours} h</span>
             </div>
           )}
