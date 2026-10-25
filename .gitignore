@@ -15,3 +15,7 @@ dist/
 .idea/
 test-results/
 playwright-report/
+
+.vercel
+.env*
+!.env.example

@@ -8,3 +8,5 @@ frontend/test-results
 frontend/.env
 docs/*.png
 **/__pycache__
+.env.local
+.vercel
