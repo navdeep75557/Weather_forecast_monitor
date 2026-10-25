@@ -1,0 +1,2 @@
+# Vercel installs Python deps for api/index.py from the repo root.
+-r backend/requirements.txt

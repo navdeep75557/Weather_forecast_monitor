@@ -1,0 +1,10 @@
+backend/.venv
+backend/tests
+backend/qa
+backend/.env
+frontend/node_modules
+frontend/dist
+frontend/test-results
+frontend/.env
+docs/*.png
+**/__pycache__
