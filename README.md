@@ -1,12 +1,12 @@
 # Wind Forecast Monitor
 
-A web app for a UK day-ahead power buying team. For every hour in **January 2026** it shows the GB wind forecast that was **actually available at decision time** (the day before delivery), compares it with what the wind fleet really generated, and reports how accurate those forecasts were.
+A web app for a UK day-ahead power buying team. For every **purchase decision made in January 2026** (decided on D-1 for delivery on D, so delivery from 2 Jan to 1 Feb 2026), it shows the GB wind forecast that was **actually available at decision time**, compares it with what the wind fleet really generated, and reports how accurate those forecasts were.
 
 **Live app:** [wind-forecast-monitor-eosin.vercel.app](https://wind-forecast-monitor-eosin.vercel.app)
 
 ![Dashboard](docs/screenshot.png)
 
-- Further reading: [Analysis summary (Jan 2026 findings)](docs/analysis.md), [client pitch script](docs/pitch-client.md), [tech lead walkthrough script](docs/walkthrough-tech-lead.md)
+- Further reading: [Analysis summary (January 2026 decisions)](docs/analysis.md), [client pitch script](docs/pitch-client.md), [tech lead walkthrough script](docs/walkthrough-tech-lead.md)
 
 ---
 
@@ -17,7 +17,7 @@ Day-ahead power is bought on D-1 for delivery on day D. Wind output is the bigge
 1. **What did the wind forecast say when we had to decide?** (not a later, better forecast we could not have used)
 2. **How much can we trust it?** Typical error, bias, worst-case misses, and how error grows with lead time.
 
-The dashboard has a sticky filter bar (January-only date range, decision cutoff or fixed horizon, with a one-line summary of the active rule), five KPI cards with plain-English tooltips, an actual-vs-forecast hero chart with a shaded over/under band and brush zoom, error-over-time and error-by-lead-time charts, key insights, and a sortable, heat-shaded daily table with CSV export. Filters live in the URL, so views can be shared. Light and dark themes are available, and the layout works down to 375 px.
+The dashboard has a sticky filter bar (January 2026 decision days, decision cutoff or fixed horizon, with a one-line summary of the active rule), five KPI cards with plain-English tooltips, an actual-vs-forecast hero chart with a shaded over/under band and brush zoom, error-over-time and error-by-lead-time charts, key insights, and a sortable, heat-shaded daily table with CSV export. Filters live in the URL, so views can be shared. Light and dark themes are available, and the layout works down to 375 px.
 
 ## 2. Decision-time logic
 
@@ -38,6 +38,8 @@ The dashboard has a sticky filter bar (January-only date range, decision cutoff 
 > Example: target **Sat 10 Jan 14:00**. Cutoff = Fri 9 Jan 09:50. The 09:30 run is the latest one published by then, so it is used (lead time 28.5 h). The 11:30 run on 9 Jan arrives after the cutoff and is ignored.
 
 All 24 hours of day D share one cutoff, so in January the 09:50 cutoff always selects the 09:30 run on D-1 (lead times 14.5-37.5 h). The cutoff is built from London wall-clock time, so it stays correct across daylight-saving changes (tested for 29 Mar and 25 Oct 2026).
+
+**Scope.** The brief asks for data relevant to purchase decisions made in January 2026. Decisions are made on D-1, so the app covers **delivery days 2 Jan - 1 Feb 2026**. The date picker selects decision days (1-31 Jan) and shows the delivery range they cover; the API and URLs use delivery dates. Every forecast used at the 09:50 cutoff was published between 1 Jan 09:30 and 31 Jan 09:30.
 
 **Fixed-horizon mode.** Pick H (0-48 h). For each target hour, use the latest forecast published **at least H hours before** it (`publishTime <= startTime - H`). This answers "how good is a forecast H hours out?"
 
@@ -64,7 +66,7 @@ Metrics are computed overall, per day (London date) and per lead-time bucket. Th
 ├── backend/                  FastAPI service (Python 3.11+)
 │   ├── app/
 │   │   ├── main.py           Routes, validation, CORS, gzip, Cache-Control, error handling
-│   │   ├── config.py         Settings (env vars) and fixed Jan-2026 scope
+│   │   ├── config.py         Settings (env vars) and scope (delivery 2 Jan - 1 Feb 2026)
 │   │   ├── elexon.py         BMRS client: weekly chunking, retry with backoff
 │   │   ├── data_store.py     In-memory + gzipped-JSON disk cache (lazy-loaded on serverless)
 │   │   ├── cache.py          LRU of serialised responses (data is immutable once loaded)
@@ -73,7 +75,7 @@ Metrics are computed overall, per day (London date) and per lead-time bucket. Th
 │   │   ├── insights.py       Plain-English takeaways
 │   │   ├── models.py         Pydantic response models
 │   │   └── refresh.py        CLI: re-fetch data from Elexon
-│   ├── data/                 Committed Jan-2026 snapshot (≈110 KB) for instant startup
+│   ├── data/                 Committed data snapshot (≈110 KB) for instant startup
 │   ├── tests/                pytest: selection (incl. DST), metrics, API, edge cases, client retries
 │   ├── qa/verify_elexon.py   Independent check of a running API against raw Elexon data
 │   ├── Dockerfile, Procfile, requirements*.txt, .env.example
@@ -97,7 +99,7 @@ Metrics are computed overall, per day (London date) and per lead-time bucket. Th
 
 ## 5. API
 
-Base URL: `http://localhost:8000`. Interactive docs at `/docs`. Dates are London-local target dates (`YYYY-MM-DD`, inclusive) limited to 2026-01-01..2026-01-31.
+Base URL: `http://localhost:8000`. Interactive docs at `/docs`. Dates are London-local **delivery** dates (`YYYY-MM-DD`, inclusive) limited to 2026-01-02..2026-02-01, i.e. decisions made on 1-31 Jan 2026.
 
 | Endpoint | Parameters | Returns |
 |---|---|---|
@@ -138,7 +140,7 @@ source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
 cp .env.example .env               # optional
 uvicorn app.main:app --reload --port 8000
-python -m app.refresh              # optional: re-fetch Jan-2026 data from Elexon
+python -m app.refresh              # optional: re-fetch the data from Elexon
 ```
 
 Frontend (Node 20.19+ or 22.12+):
@@ -215,6 +217,7 @@ Assumptions confirmed with the product owner before the metrics were built:
 - **Exact-hour join.** WINDFOR is hourly and FUELHH half-hourly, so metrics use the 744 on-the-hour points where both exist. Nothing is interpolated or averaged. The chart still shows all half-hourly actuals.
 - **Error = forecast − actual**, so positive bias means over-forecasting.
 - **Error by lead time uses all forecast runs**, not only the cutoff-selected ones; otherwise the 09:50 cutoff would only cover 14-38 h.
+- **Decision-month scope.** "Purchase decisions made in January 2026" means delivery 2 Jan - 1 Feb. Fixed-horizon and lead-time views evaluate the same delivery days, so for 1 Feb they can use runs published on 1 Feb. The D-1 cutoff view only uses runs published by 09:50 on 31 Jan.
 
 Other assumptions:
 
@@ -224,10 +227,10 @@ Other assumptions:
 
 Limitations:
 
-- **One winter month.** Results may not hold in other seasons or wind regimes.
+- **One winter month of decisions.** Results may not hold in other seasons or wind regimes.
 - **Definitions may differ between datasets.** FUELHH is metered output, including the effect of any curtailment, while WINDFOR is a forecast of generation. Part of the strong positive bias may reflect curtailment or differences in which wind farms each dataset covers, not only forecasting skill. This cannot be verified with Elexon wind data alone (per scope).
 - **MAPE is inflated on calm days** (e.g. 66% on 8 Jan, when mean output was 4.5 GW); prefer MAE/P90 for sizing.
-- **Static snapshot.** January 2026 is final, so the data is committed for speed and resilience; `python -m app.refresh` or `REFRESH_ON_STARTUP=true` re-fetches it.
+- **Static snapshot.** The data is final, so it is committed for speed and resilience; `python -m app.refresh` or `REFRESH_ON_STARTUP=true` re-fetches it.
 - **Cold starts.** Serverless or free-tier hosting adds 2-60 s to the first request after idle; the UI shows a "waking up" message after 4 s.
 - **Docker is verified in CI only.** Docker wasn't available in the authoring environment. The GitHub Actions workflow builds and runs the stack and passes the e2e suite against it. The Vercel deployment is verified too: the e2e suite and Elexon verification pass against the live URL.
 

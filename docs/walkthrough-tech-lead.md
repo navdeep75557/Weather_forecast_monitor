@@ -1,59 +1,52 @@
 # Tech lead walkthrough: Wind Forecast Monitor (about 5 minutes)
 
-*Audience: engineering lead reviewing the codebase. Have the repo and `/docs` (Swagger) open.*
+*Audience: engineering lead reviewing the codebase. Have the repo, the live app and `/docs` (Swagger) open.*
 
 ---
 
 **[0:00 – What it is, 30 s]**
 
-A FastAPI backend and a React/TypeScript frontend. It answers one question: for each January 2026 hour, what was the latest Elexon wind forecast available at the day-ahead decision time, and how accurate was it? Repo layout is `/backend`, `/frontend`, `docker-compose.yml`, `render.yaml` and the README.
+A FastAPI backend and a React/TypeScript frontend. It answers one question: for each delivery hour bought by a January 2026 decision, what was the latest Elexon wind forecast available at the 09:50 D-1 decision time, and how accurate was it? Decisions on 1-31 Jan mean delivery 2 Jan - 1 Feb. Layout: `backend/`, `frontend/`, `docker-compose.yml`, `vercel.json`, `.github/workflows` and the README.
 
-**[0:30 – Data layer, 1 min]**
+**[0:30 – Data layer, 50 s]**
 
-`elexon.py` wraps two BMRS stream endpoints:
-- **FUELHH**, filtered to `fuelType=WIND`, by settlement date;
-- **WINDFOR**, by publish time.
+`elexon.py` wraps two BMRS stream endpoints: **FUELHH** filtered to WIND by settlement date, and **WINDFOR** by publish time. Requests are chunked by week. Retries use exponential backoff with jitter on 429, 5xx and network errors; other 4xx responses fail fast with a typed `ElexonError`.
 
-I chunk requests by week, as the brief asked, even though the API coped with a month. Retries use exponential backoff with jitter on 429, 5xx and network errors, and other 4xx responses fail fast with a typed `ElexonError`.
+Everything is normalised to tz-aware UTC and de-duplicated. `data_store.py` loads a gzipped JSON snapshot committed under `backend/data`, about 110 KB, because this is final data. So the API starts instantly and doesn't depend on Elexon being up. `python -m app.refresh` rebuilds it. If loading fails, `/api/health` reports degraded and the data endpoints return 503 with the reason.
 
-Normalisation converts everything to tz-aware UTC and de-duplicates. For FUELHH the latest publish per `startTime` wins; WINDFOR is de-duplicated on (`publishTime`, `startTime`).
+**[1:20 – Core logic, 1 min]**
 
-`data_store.py` caches in memory and in a gzipped JSON snapshot committed under `backend/data`, about 110 KB. January 2026 is final data, so the deployed API starts instantly and doesn't depend on Elexon being up. `python -m app.refresh` or `REFRESH_ON_STARTUP=true` rebuilds it. If loading fails, the API still starts: `/api/health` reports degraded and data endpoints return 503 with the reason.
+`forecasting.py` is the heart of it, and both modes reduce to one function, `select_latest(forecasts, cutoff_by_target)`: join a per-target cutoff, keep `publish_time <= cutoff`, take the latest per target. It's vectorised pandas.
 
-**[1:30 – Core logic, 1 min 15 s]**
-
-`forecasting.py` is the heart of it, and both modes reduce to one function: `select_latest(forecasts, cutoff_by_target)`. It joins a per-target cutoff, filters `publish_time <= cutoff`, and takes the `idxmax` of publish time per target. Everything is vectorised in pandas.
-
-- **Cutoff mode:** the cutoff is HH:MM London on D-1. I build it from *naive wall-clock time* and then localise to Europe/London, so DST days are correct. Tests cover the March and October 2026 transitions, including a 23:30 UTC target that falls on the next London date.
+- **Cutoff mode:** HH:MM London on D-1, built from naive wall-clock time and then localised, so daylight-saving days are right. A test compares it with an independent zoneinfo implementation for every hour of 2026.
 - **Horizon mode:** the cutoff is `start_time - H`.
 
-Three choices change the numbers, and the product owner signed off on each:
-- **exact-hour join** (WINDFOR is hourly, FUELHH half-hourly; no interpolation);
-- **error = forecast − actual**;
-- **lead-time analysis over all forecast runs**, not just the selected ones.
+Four choices change the numbers, and each was signed off:
+- an exact-hour join (WINDFOR is hourly, FUELHH half-hourly);
+- error = forecast − actual;
+- lead-time analysis over all runs;
+- the decision-month scope.
 
-`metrics.py` computes MAE, RMSE, bias, MAPE (skipping near-zero actuals), P90 and max error, overall and per London day and lead-time bucket. `insights.py` turns those into plain-English findings, including a comparison against the freshest forecast to quantify the cost of deciding a day ahead.
+`metrics.py` computes MAE, RMSE, bias, zero-guarded MAPE and P90, overall, per day and per lead-time bucket. `insights.py` turns those into plain-English findings.
 
-**[2:45 – API surface, 30 s]**
+**[2:20 – API, 40 s]**
 
-The five endpoints are the ones in the brief. Query params are validated with FastAPI and Pydantic, and dates are restricted to January 2026 with a clear 422. Response models live in `models.py`, so Swagger is accurate. CORS takes an explicit origin list plus an optional regex for Vercel preview URLs. The full metrics payload is about 120 KB and returns in roughly half a second.
+These are the five endpoints from the brief, with Pydantic models, so Swagger is accurate. Inputs are validated with clear 422s; for example, dates outside 2 Jan - 1 Feb are rejected. Because the data is immutable, every response is validated and serialised once per query and kept in an LRU cache: a cached metrics call takes about 10 ms. Responses are gzipped (the metrics payload goes from 120 KB to 14 KB) and carry `s-maxage`, so Vercel's CDN serves repeat queries. The data store also loads lazily, because serverless runtimes may skip the startup hook.
 
-**[3:15 – Frontend, 50 s]**
+**[3:00 – Frontend, 50 s]**
 
-Vite, React 19, TypeScript in strict mode, Recharts. `useDashboard` fetches the three resources in parallel with an `AbortController`. It keeps the previous data on screen at reduced opacity while refetching, and shows a "waking up" message if the free-tier backend is cold. Controls are debounced.
+The stack is Vite, React 19 and strict TypeScript, with Tailwind and Radix primitives for the UI and Recharts for the charts.
+- **Data:** `useDashboard` fetches in parallel with an `AbortController`, keeps the previous data visible while refetching, and applies results in a React transition, so chart rendering doesn't block input.
+- **Shareable state:** filters live in the URL. The picker selects January decision days, and the API works in delivery dates.
+- **Load speed:** chart code is lazy-loaded, and below-the-fold charts render only near the viewport.
+- **Accessibility:** colours passed a colour-vision-deficiency check in both themes, and Lighthouse accessibility scores 100.
 
-The brush on the main chart drives a shared time window, so the error chart zooms with it. The lead-time chart highlights the buckets the current selection actually uses. Chart colours were run through a colour-vision-deficiency validator in light and dark mode. The daily table sorts and exports daily and hourly CSV.
+**[3:50 – Quality, 40 s]**
 
-**[4:05 – Quality and delivery, 35 s]**
+- **47 pytest tests** cover selection boundaries, DST, metrics, edge cases (zero actuals, empty ranges, Elexon outages and timeouts), caching and client retries.
+- **`qa/verify_elexon.py`** re-implements selection and metrics without importing the app, from raw Elexon data, and diffs against a running API. It also asserts that every decision-time forecast was published in January.
+- **13 Playwright tests** run against the production build, and against the live site.
 
-- **Tests:** 35 pytest tests cover selection (boundaries, inclusivity, DST, missing forecasts), metric values, bucketing, the API against the real snapshot, and client retry and chunking with `httpx.MockTransport`.
-- **Frontend checks:** a type-check and production build, plus an automated browser pass for console errors, mobile overflow, brush, mode switching, CSV and error states.
-- **Delivery:** Dockerfiles for both services, with nginx proxying `/api` in compose. Render runs the API (blueprint included) and Vercel the frontend.
+**[4:30 – Delivery, 30 s]**
 
-**[4:40 – Trade-offs and next steps, 20 s]**
-
-The snapshot approach trades freshness for speed and resilience, which is fine for a fixed month. Next steps:
-- generalise the scope beyond January;
-- add a scheduled refresh;
-- add frontend unit tests;
-- investigate whether the strong over-forecast bias comes from curtailment or a difference in coverage between FUELHH and WINDFOR. That needs data beyond this brief's scope.
+`vercel.json` declares two Vercel services, Vite at `/` and FastAPI at `/api`, so they share an origin. Every push to `main` deploys, and a warm-up workflow wakes the new deployment. A second workflow builds the Docker Compose stack (with nginx proxying `/api`) and runs the e2e suite against it. Next steps: extend beyond January, add a scheduled refresh, and investigate the over-forecast bias. That last one needs curtailment data beyond this brief.
