@@ -74,9 +74,9 @@ export default function DateRangePicker({ start, end, onChange }: Props) {
           align="start"
           sideOffset={8}
           collisionPadding={16}
-          className="z-50 flex flex-col gap-4 rounded-xl border border-border bg-surface p-4 tabular-nums shadow-lg sm:flex-row"
+          className="z-50 flex max-w-[calc(100vw-2rem)] flex-col gap-4 rounded-xl border border-border bg-surface p-4 tabular-nums shadow-lg sm:flex-row"
         >
-          <div className="flex flex-wrap gap-1 sm:w-32 sm:flex-col" role="group" aria-label="Presets">
+          <div className="flex flex-wrap gap-1 sm:w-40 sm:flex-col" role="group" aria-label="Presets">
             {PRESETS.map((p) => {
               const active = p.start === decisionStart && p.end === decisionEnd;
               return (
