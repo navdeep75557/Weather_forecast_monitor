@@ -1,5 +1,5 @@
 /** Data hooks: dashboard bundle for one query (keeps previous data while refetching) and API health. */
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import { api } from "./api";
 import { afterPaint } from "./lib/afterPaint";
 import type { ActualPoint, ErrorByHorizonResponse, HealthResponse, MetricsResponse, Query } from "./types";
@@ -30,7 +30,10 @@ export function useDashboard(q: Query) {
     // Let the shell/skeleton paint first; requests then go out within a frame.
     afterPaint()
       .then(() => Promise.all([api.actuals(q, ctl.signal), api.metrics(q, ctl.signal), api.errorByHorizon(q, ctl.signal)]))
-      .then(([actuals, metrics, horizon]) => setState({ data: { actuals, metrics, horizon }, loading: false, slow: false }))
+      // Transition: React renders the (chart-heavy) result in interruptible chunks instead of one long task.
+      .then(([actuals, metrics, horizon]) =>
+        startTransition(() => setState({ data: { actuals, metrics, horizon }, loading: false, slow: false })),
+      )
       .catch((err: Error) => {
         if (!ctl.signal.aborted) setState((s) => ({ ...s, loading: false, slow: false, error: err.message }));
       })
