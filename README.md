@@ -2,7 +2,7 @@
 
 A web app for a UK day-ahead power buying team. For every hour in **January 2026** it shows the GB wind forecast that was **actually available at decision time** (the day before delivery), compares it with what the wind fleet really generated, and reports how accurate those forecasts were.
 
-**Live app:** [PLACEHOLDER]
+**Live app:** [wind-forecast-monitor-eosin.vercel.app](https://wind-forecast-monitor-eosin.vercel.app)
 
 ![Dashboard](docs/screenshot.png)
 
@@ -61,7 +61,6 @@ Metrics are computed overall, per day (London date) and per lead-time bucket. Th
 
 ```
 .
-├── api/index.py              Vercel Python entrypoint (serves backend/app for /api/*)
 ├── backend/                  FastAPI service (Python 3.11+)
 │   ├── app/
 │   │   ├── main.py           Routes, validation, CORS, gzip, Cache-Control, error handling
@@ -91,7 +90,7 @@ Metrics are computed overall, per day (London date) and per lead-time bucket. Th
 │   ├── Dockerfile, nginx.conf.template, playwright.config.ts, .env.example
 ├── docs/                     Analysis summary, pitch and walkthrough scripts, screenshot
 ├── docker-compose.yml        Runs backend + frontend together
-├── vercel.json               Single Vercel project: static frontend + Python API
+├── vercel.json               Vercel services: Vite frontend at /, FastAPI backend at /api
 ├── render.yaml               Alternative: Render blueprint for the API
 └── .env.example              All environment variables in one place
 ```
@@ -169,21 +168,25 @@ E2E_PYTHON=../backend/.venv/bin/python npm run e2e      # Windows: ..\backend\.v
 E2E_BASE_URL=https://<deployment> npm run e2e           # run the same tests against any deployment
 ```
 
-Lighthouse on the local production build scores Performance 95-98 on mobile and 92-97 on desktop, with Accessibility 100 and Best Practices 100.
+Lighthouse on the production build scored Performance 95-98 (mobile) and 92-97 (desktop) on an idle machine, with Accessibility 100 and Best Practices 100. Locally run Lighthouse is sensitive to background CPU load; for a stable number use [PageSpeed Insights](https://pagespeed.web.dev/) on the live URL.
 
 ## 7. Deploy (Vercel, frontend and API in one project)
 
-> Not deployed yet. These steps are prepared and tested locally only.
+Live at **https://wind-forecast-monitor-eosin.vercel.app**. The project is `wind-forecast-monitor`, deployed from the CLI.
 
-`vercel.json` builds the frontend from `frontend/` and serves the FastAPI app as one Python function (`api/index.py`) for every `/api/*` route. Site and API share an origin, so you don't need CORS settings or `VITE_API_URL`. API responses carry `Cache-Control: s-maxage=86400`, so Vercel's CDN serves repeat queries without invoking Python.
+`vercel.json` declares two [Vercel services](https://vercel.com/docs): `frontend` (Vite, root `frontend/`, mounted at `/`) and `backend` (FastAPI, root `backend/`, entrypoint `app/main.py`, mounted at `/api`). Site and API share an origin, so you don't need CORS settings or `VITE_API_URL`. API responses carry `Cache-Control: s-maxage=86400`, so Vercel's CDN serves repeat queries without invoking Python. Hashed assets are cached as immutable.
 
-1. Push the repo to GitHub (`git remote add origin …` and `git push -u origin main`).
-2. In Vercel: **Add New → Project** → import the repo. Keep the **root directory as the repo root**; `vercel.json` supplies the install, build and output settings. No environment variables are required.
-   Or from the CLI, in the repo root: `vercel` (preview), then `vercel --prod`.
-3. Check `https://<project>.vercel.app/api/health` returns `"status":"ok"` and the dashboard loads. Then run `E2E_BASE_URL=https://<project>.vercel.app npm run e2e` from `frontend/`.
-4. Replace the **Live app** placeholder at the top of this README.
+To redeploy, run this from the repo root:
 
-Expect a Python cold start of about 2-3 s (pandas import plus a 110 ms data load); after that, cached queries take about 10 ms.
+```bash
+vercel login                       # once
+vercel link --project wind-forecast-monitor   # once per machine
+vercel deploy --prod
+curl https://<project>.vercel.app/api/health  # expect "status":"ok"
+cd frontend && E2E_BASE_URL=https://<project>.vercel.app npm run e2e
+```
+
+No environment variables are required. To deploy automatically on push instead, connect the GitHub repository under the project's **Settings → Git**; this needs the Vercel GitHub app on the account. The Python cold start is about 2-3 s (pandas import plus a 110 ms data load); after that, cached queries take about 10 ms.
 
 **Alternative (separate API host):** deploy `backend/` to Render (`render.yaml`, or a web service with root `backend`, build `pip install -r requirements.txt`, start `uvicorn app.main:app --host 0.0.0.0 --port $PORT`, health check `/api/health`, `PYTHON_VERSION=3.11.9`) or Heroku (`git subtree push --prefix backend heroku main`). Then deploy the frontend with root `frontend`, set `VITE_API_URL=https://<api-host>`, and set `ALLOWED_ORIGINS` (plus optional `ALLOWED_ORIGIN_REGEX` for preview URLs) on the API.
 
@@ -224,7 +227,7 @@ Limitations:
 - **MAPE is inflated on calm days** (e.g. 66% on 8 Jan, when mean output was 4.5 GW); prefer MAE/P90 for sizing.
 - **Static snapshot.** January 2026 is final, so the data is committed for speed and resilience; `python -m app.refresh` or `REFRESH_ON_STARTUP=true` re-fetches it.
 - **Cold starts.** Serverless or free-tier hosting adds 2-60 s to the first request after idle; the UI shows a "waking up" message after 4 s.
-- **Not yet verified on real infrastructure.** Docker images and the Vercel config follow standard patterns and were checked statically and by simulation (Docker wasn't available in the authoring environment, and nothing has been deployed yet). Run the e2e suite against the first real deployment.
+- **Docker not built.** The Docker images follow standard patterns and were checked statically, but Docker wasn't available in the authoring environment. The Vercel deployment is verified: e2e suite and Elexon verification pass against the live URL.
 
 ## 9. AI assistance
 
