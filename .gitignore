@@ -1,21 +1,31 @@
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
 .venv/
+venv/
+env/
+*.egg-info/
 .pytest_cache/
-# Node
+.coverage
+htmlcov/
+
+# Node / build output
 node_modules/
 dist/
-# Env
-.env
-.env.local
-# OS / editor
-.DS_Store
-.vscode/
-.idea/
+build/
+*.log
+
+# Tests
 test-results/
 playwright-report/
 
-.vercel
+# Secrets and local config (examples are committed)
 .env*
 !.env.example
+.vercel
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
