@@ -1,30 +1,47 @@
 name: Warm production
 
-# After each successful production deployment, wake the Python function and fill the CDN cache
-# for the default dashboard queries, so the first visitor doesn't pay the ~3 s cold start.
-on: deployment_status
+# Vercel deploys main on every push (~1 min). Each deployment starts with a cold Python function
+# (~3 s) and an empty CDN cache, so wait for the new deployment to answer, then wake the API and
+# fill the CDN cache for the default dashboard queries before real visitors arrive.
+# (Triggered on push because this Vercel project doesn't emit GitHub deployment_status events.)
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
 
 jobs:
   warm:
-    if: github.event.deployment_status.state == 'success' && startsWith(github.event.deployment.environment, 'Production')
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     env:
       SITE: https://wind-forecast-monitor-eosin.vercel.app
     steps:
-      - name: Wake the API (retry while the alias switches over)
+      - name: Wait for an API instance started after this push
         run: |
-          for i in $(seq 1 12); do
-            curl -fsS "$SITE/api/health" && exit 0
-            sleep 5
+          since=$(date -u +%s)
+          for i in $(seq 1 40); do
+            loaded=$(curl -fsS "$SITE/api/health" | python3 -c "import json, sys, datetime; t = json.load(sys.stdin)['loaded_at']; print(int(datetime.datetime.fromisoformat(t.replace('Z', '+00:00')).timestamp()))" || echo 0)
+            if [ "$loaded" -ge "$since" ]; then echo "Fresh API instance (loaded_at $loaded)"; exit 0; fi
+            sleep 15
           done
-          exit 1
+          echo "No fresh instance seen within 10 minutes; warming anyway."
 
       - name: Fill the CDN cache for the default view
         run: |
           Q="start=2026-01-01&end=2026-01-31"
           for path in "/" "/api/actuals?$Q" "/api/metrics?$Q&mode=cutoff&cutoff_hour=9&cutoff_minute=50" "/api/error-by-horizon?$Q"; do
             # Responses vary by encoding; warm the variants browsers send.
+            for enc in "gzip, deflate, br, zstd" "gzip, deflate, br" "gzip, deflate"; do
+              curl -fsS -o /dev/null -H "Accept-Encoding: $enc" -w "%{http_code} %{time_total}s $path ($enc)\n" "$SITE$path"
+            done
+          done
+
+      - name: Second pass (in case the first poll reached the previous deployment)
+        run: |
+          sleep 120
+          curl -fsS "$SITE/api/health"; echo
+          Q="start=2026-01-01&end=2026-01-31"
+          for path in "/api/actuals?$Q" "/api/metrics?$Q&mode=cutoff&cutoff_hour=9&cutoff_minute=50" "/api/error-by-horizon?$Q"; do
             for enc in "gzip, deflate, br, zstd" "gzip, deflate, br" "gzip, deflate"; do
               curl -fsS -o /dev/null -H "Accept-Encoding: $enc" -w "%{http_code} %{time_total}s $path ($enc)\n" "$SITE$path"
             done
